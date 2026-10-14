@@ -11,11 +11,11 @@ databases:
 services:
   - type: web
     name: agentsdr
-    # Built from this repo's Dockerfile; every push to main redeploys.
-    runtime: docker
-    dockerfilePath: ./Dockerfile
-    branch: main
-    autoDeploy: true
+    # Built by GitHub Actions (.github/workflows/docker.yml) on every push to
+    # main: building on Render runs out of memory (over 8 GB).
+    runtime: image
+    image:
+      url: ghcr.io/dakshkentron/agentsdr:latest
     # Standard (2 GB): the app idles around 650 MB, over Starter's 512 MB.
     # Not free either: free services sleep, and the scheduled jobs run inside the app.
     plan: standard
