@@ -1,0 +1,41 @@
+# Render Blueprint: Dashboard → New → Blueprint → pick this repo.
+# Creates the Postgres database and the web service, generates the secrets,
+# and asks you for APP_URL once (your https://<name>.onrender.com).
+databases:
+  - name: agentsdr-db
+    databaseName: agentsdr
+    user: agentsdr
+    plan: basic-256mb
+    postgresMajorVersion: "16"
+
+services:
+  - type: web
+    name: agentsdr
+    # The published release image: no build on Render (building Next.js from
+    # source needs several GB of RAM). Bump the tag to upgrade.
+    runtime: image
+    image:
+      url: ghcr.io/kandid-ai/agentsdr:0.3.1
+    # Not free: free services sleep, and the scheduled jobs run inside the app.
+    plan: starter
+    envVars:
+      - key: APP_URL
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: agentsdr-db
+          property: connectionString
+      # The internal Render network URL has no TLS.
+      - key: DATABASE_SSL
+        value: disable
+      - key: BETTER_AUTH_SECRET
+        generateValue: true
+      # Back this one up: it decrypts every saved integration credential.
+      - key: INTEGRATION_CREDENTIALS_KEY
+        generateValue: true
+      - key: UNSUBSCRIBE_SECRET
+        generateValue: true
+      - key: RESEND_API_KEY
+        sync: false
+      - key: AUTH_EMAIL_FROM
+        sync: false
