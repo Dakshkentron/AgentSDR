@@ -11,13 +11,14 @@ databases:
 services:
   - type: web
     name: agentsdr
-    # The published release image: no build on Render (building Next.js from
-    # source needs several GB of RAM). Bump the tag to upgrade.
-    runtime: image
-    image:
-      url: ghcr.io/kandid-ai/agentsdr:0.3.1
-    # Not free: free services sleep, and the scheduled jobs run inside the app.
-    plan: starter
+    # Built from this repo's Dockerfile; every push to main redeploys.
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    branch: main
+    autoDeploy: true
+    # Standard (2 GB): the app idles around 650 MB, over Starter's 512 MB.
+    # Not free either: free services sleep, and the scheduled jobs run inside the app.
+    plan: standard
     envVars:
       - key: APP_URL
         sync: false
