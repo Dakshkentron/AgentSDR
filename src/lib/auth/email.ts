@@ -23,6 +23,20 @@ export type AuthEmail = { to: string; subject: string; text: string; html: strin
 
 export async function sendAuthEmail(email: AuthEmail): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY;
+  // SMTP instead of Resend, for a sender without its own domain, e.g. Gmail
+  // with an app password: smtps://you%40gmail.com:<app-password>@smtp.gmail.com:465
+  const smtpUrl = process.env.SMTP_URL;
+  if (!apiKey && smtpUrl) {
+    const { createTransport } = await import("nodemailer");
+    await createTransport(smtpUrl).sendMail({
+      from: process.env.AUTH_EMAIL_FROM || decodeURIComponent(new URL(smtpUrl).username),
+      to: email.to,
+      subject: email.subject,
+      text: email.text,
+      html: email.html,
+    });
+    return;
+  }
   if (!apiKey) {
     if (process.env.NODE_ENV === "production" && !warnedNoEmailService) {
       warnedNoEmailService = true;
