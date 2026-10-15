@@ -10,6 +10,7 @@ import {
   RiPauseCircleLine,
   RiPencilLine,
   RiPlayCircleLine,
+  RiSendPlaneLine,
   RiLoopRightLine,
   RiTeamLine,
   RiTimeLine,
@@ -93,6 +94,7 @@ export function CampaignDetailClient({
   const [campaign, setCampaign] = useState(initial);
   const [showEditCampaign, setShowEditCampaign] = useState(false);
   const [toggling, setToggling] = useState(false);
+  const [sending, setSending] = useState(false);
   const [chartData, setChartData] = useState<ChartDay[] | null>(null);
 
   useEffect(() => {
@@ -112,6 +114,28 @@ export function CampaignDetailClient({
   const senderOptions = campaign.accounts.length > 0 ? campaign.accounts : accounts;
   const status = CAMPAIGN_STATUS[campaign.status];
   const steps = sequenceStepsBuilt(campaign);
+
+  async function sendNow() {
+    setSending(true);
+    try {
+      const res = await fetch(`/api/linkedin/campaigns/${campaign.id}/send-now`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) throw new Error(data.error ?? "Something went wrong. Please try again.");
+      await dialogs.alert({
+        title: "Sending now",
+        description: "The next invitations and messages are going out. Lead statuses update within a minute or two; refresh to see them.",
+      });
+      router.refresh();
+    } catch (cause) {
+      await dialogs.alert({
+        title: "Could not send now",
+        description: cause instanceof Error ? cause.message : "Something went wrong. Please try again.",
+        variant: "error",
+      });
+    } finally {
+      setSending(false);
+    }
+  }
 
   async function toggleStatus() {
     const next = campaign.status === "ACTIVE" ? "PAUSED" : "ACTIVE";
@@ -170,6 +194,12 @@ export function CampaignDetailClient({
               />
               {campaign.status === "ACTIVE" ? "Pause" : "Resume"}
             </Button.Root>
+            {campaign.status === "ACTIVE" && (
+              <Button.Root variant="primary" mode="filled" size="small" onClick={() => void sendNow()} disabled={sending} title="Send the next invitations now instead of waiting for the next scheduled run">
+                <Button.Icon as={sending ? RiLoader4Line : RiSendPlaneLine} className={cn(sending && "animate-spin")} />
+                Send now
+              </Button.Root>
+            )}
           </>
         }
       />
