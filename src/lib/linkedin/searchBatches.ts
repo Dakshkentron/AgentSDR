@@ -247,10 +247,22 @@ export async function getSearchBatchDetail(id: string): Promise<SearchBatchDetai
 export type SearchUrlInput = { url: string; companyName: string | null };
 
 /** Trim, drop blanks, and dedupe by URL (first company name wins). */
+/**
+ * A LinkedIn search URL as given, with a missing scheme added; plain words
+ * ("sales manager pune") become a LinkedIn people search for those keywords.
+ */
+export function toSearchUrl(input: string): string {
+  const value = input.trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  if (/^(www\.)?linkedin\.com\//i.test(value)) return `https://${value}`;
+  return `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(value)}`;
+}
+
 export function cleanSearchUrls(rows: SearchUrlInput[]): SearchUrlInput[] {
   const seen = new Map<string, SearchUrlInput>();
   for (const r of rows) {
-    const url = r.url.trim();
+    const url = toSearchUrl(r.url);
     if (!url || seen.has(url)) continue;
     const companyName = r.companyName?.trim() || null;
     seen.set(url, { url, companyName });

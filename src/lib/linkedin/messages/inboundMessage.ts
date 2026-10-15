@@ -9,6 +9,8 @@ type InboundMessageInput = {
   linkedinMessageId?: string | null;
   connectionId: string;
   leadId?: string | null;
+  /** CUSTOM_SENT for our own message sent straight from LinkedIn; read already. */
+  type?: "RECEIVED" | "CUSTOM_SENT";
   /**
    * Display/identity context for forwarding this reply to AgentSDR_v2's CRM.
    * Omit when the sender is not a canonical campaign Person; the message will
@@ -45,23 +47,23 @@ export const saveInboundMessage = async (input: InboundMessageInput): Promise<"s
         if (existing) return false;
         await tx.insert(messages).values({
           organizationId: currentOrganizationId(),
-          type: "RECEIVED",
+          type: input.type ?? "RECEIVED",
           text: input.text,
           linkedinMessageId,
           connectionId: input.connectionId,
           leadId: input.leadId ?? null,
-          seen: false,
+          seen: input.type === "CUSTOM_SENT",
         });
         return true;
       })
     : await db.insert(messages).values({
         organizationId: currentOrganizationId(),
-        type: "RECEIVED",
+        type: input.type ?? "RECEIVED",
         text: input.text,
         linkedinMessageId: null,
         connectionId: input.connectionId,
         leadId: input.leadId ?? null,
-        seen: false,
+        seen: input.type === "CUSTOM_SENT",
       }).then(() => true);
 
   if (input.forward) {

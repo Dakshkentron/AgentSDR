@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { campaigns, connections, leads, linkedInAccounts, webhookEvents } from "@/lib/linkedin/schema";
 import type { LeadStatus } from "@/lib/linkedin/schema";
 import { saveInboundMessage } from "@/lib/linkedin/messages/inboundMessage";
+import { messageText as labelledMessageText } from "@/lib/linkedin/messages/syncFromUnipile";
 import { processLeadAcceptance } from "@/lib/linkedin/acceptanceMessage";
 import { isMigrationControlPaused } from "@/lib/migration/controls";
 import { serializeError } from "@/lib/linkedin/serializeError";
@@ -125,7 +126,8 @@ async function handle(req: NextRequest, body: WebhookBody) {
 
     const accountLinkedinId: string | undefined = body.account_id;
     const senderProviderId: string | undefined = body.sender?.attendee_provider_id;
-    const messageText: string = body.message ?? "";
+    // Photos, files and shared posts arrive with no text; label them like the sync does.
+    const messageText: string = labelledMessageText({ id: "", text: body.message, attachments: body.attachments }) ?? "";
     const chatId: string | undefined = body.chat_id;
     const incomingMessageId: string | undefined = body.message_id ?? body.id;
 
@@ -267,8 +269,16 @@ async function handle(req: NextRequest, body: WebhookBody) {
 
     if (!lead) {
       if (isSender) {
-        log.info(`Message from ourselves (is_sender=true) with no linked lead — skipping`);
-        await finish("skipped");
+        // Sent from LinkedIn itself (the app's own sends are stored when sent,
+        // and the shared message id keeps this echo from saving them twice).
+        await saveInboundMessage({
+          text: messageText,
+          linkedinMessageId: incomingMessageId,
+          connectionId: connection.id,
+          type: "CUSTOM_SENT",
+        });
+        log.info(`Our own message (is_sender=true) saved to the LinkedIn inbox`);
+        await finish("ok");
         return response;
       }
       // Keep unsolicited LinkedIn messages visible in the LinkedIn inbox, but

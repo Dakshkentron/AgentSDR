@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray, isNull, max, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { connections, leads, linkedInAccounts, messages } from "@/lib/linkedin/schema";
 import { requirePlatformCredentials } from "@/lib/platform/credentials";
@@ -24,7 +24,29 @@ const MAX_MESSAGES_PER_CHAT = 500;
 
 type UnipileChat = { id: string; type?: number; attendee_provider_id?: string | null; timestamp?: string | null };
 type Page<T> = { items?: T[]; cursor?: string | null };
-type UnipileMessage = { id: string; text?: string | null; timestamp?: string | null; is_sender?: number | boolean };
+type UnipileMessage = {
+  id: string;
+  text?: string | null;
+  timestamp?: string | null;
+  is_sender?: number | boolean;
+  attachments?: { type?: string; file_name?: string }[];
+};
+
+const ATTACHMENT_LABELS: Record<string, string> = {
+  img: "📷 Photo",
+  video: "🎥 Video",
+  audio: "🎤 Voice message",
+  linkedin_post: "🔗 Shared a LinkedIn post",
+};
+
+/** The message's text, or a label for what it carried when it has none (photo, file, …). */
+export function messageText(m: UnipileMessage): string | null {
+  if (m.text?.trim()) return m.text;
+  const labels = (m.attachments ?? []).map((a) =>
+    a.type === "file" ? `📎 ${a.file_name || "File"}` : (ATTACHMENT_LABELS[a.type ?? ""] ?? "📎 Attachment"),
+  );
+  return labels.length ? labels.join("\n") : null;
+}
 type UnipileAttendee = {
   provider_id?: string;
   name?: string | null;
@@ -70,23 +92,17 @@ export async function syncLinkedinMessages(): Promise<MessageSyncResult> {
       // ponytail: one-to-one chats only; group threads have no single person to file them under.
       if (chat.type !== undefined && chat.type !== 0) continue;
 
-      // Nothing new since the last sync: the newest stored message is as recent as the chat.
-      if (chat.timestamp) {
-        const [latest] = await db
-          .select({ at: max(messages.createdAt) })
-          .from(messages)
-          .innerJoin(connections, eq(connections.id, messages.connectionId))
-          .where(and(inOrg(messages), eq(connections.chatId, chat.id)));
-        if (latest?.at && latest.at >= new Date(chat.timestamp)) continue;
-      }
-
       const attendees = await unipile<{ items?: UnipileAttendee[] }>(`/chats/${encodeURIComponent(chat.id)}/attendees`);
       const other = (attendees.items ?? []).find((a) => !a.is_self && a.provider_id);
       const providerId = other?.provider_id ?? chat.attendee_provider_id;
       if (!providerId) continue;
 
       const history = await all<UnipileMessage>(`/chats/${encodeURIComponent(chat.id)}/messages`, MAX_MESSAGES_PER_CHAT);
-      const items = history.filter((m) => m.id && m.text?.trim());
+      // ponytail: every sync re-reads each chat's full history (deduped on insert) so nothing older is ever missed; skip unchanged chats if inboxes get large.
+      const items = history.flatMap((m) => {
+        const text = messageText(m);
+        return m.id && text ? [{ ...m, text }] : [];
+      });
       if (items.length === 0) continue;
 
       const [lead] = await db
@@ -133,7 +149,7 @@ export async function syncLinkedinMessages(): Promise<MessageSyncResult> {
           fresh.map((m) => ({
             organizationId: currentOrganizationId(),
             type: m.is_sender ? ("CUSTOM_SENT" as const) : ("RECEIVED" as const),
-            text: m.text!,
+            text: m.text,
             linkedinMessageId: m.id,
             connectionId: connection.id,
             leadId: connection.leadId,

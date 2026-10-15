@@ -573,8 +573,8 @@ export function SearchBatchesClient({
               <Field label="Name" htmlFor="single-name">
                 <TextField id="single-name" value={singleName} onChange={setSingleName} placeholder="e.g. VP Sales at Acme" autoFocus />
               </Field>
-              <Field label="Search URL" htmlFor="single-url">
-                <TextField id="single-url" value={singleUrl} onChange={setSingleUrl} placeholder="https://www.linkedin.com/search/results/people/?keywords=..." mono />
+              <Field label="Search URL or keywords" htmlFor="single-url">
+                <TextField id="single-url" value={singleUrl} onChange={setSingleUrl} placeholder="sales manager pune, or a LinkedIn people search URL" mono />
               </Field>
               <Field label="Company name (optional)" htmlFor="single-company">
                 <TextField id="single-company" value={singleCompany} onChange={setSingleCompany} />
