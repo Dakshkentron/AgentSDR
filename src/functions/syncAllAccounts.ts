@@ -4,12 +4,6 @@ import { db } from "@/lib/db";
 import { linkedInAccounts } from "@/lib/linkedin/schema";
 import { getLinkedInAccounts, getProfile } from "@/services/unipile.service";
 import { serializeError } from "@/lib/linkedin/serializeError";
-import {
-  DEFAULT_WORK_DAYS,
-  DEFAULT_WORK_END,
-  DEFAULT_WORK_START,
-  DEFAULT_WORK_TIMEZONE,
-} from "@/lib/linkedin/workingHours";
 import { currentOrganizationId, inOrg, maybeCurrentOrganizationId, runInOrganization } from "@/lib/tenancy/scope";
 import { unipileOrganizationIds } from "@/lib/linkedin/organizations.server";
 
@@ -106,10 +100,9 @@ const syncOrganizationAccounts = async (): Promise<void> => {
           name: acc.name,
           username: acc.username,
           status,
-          workTimezone: DEFAULT_WORK_TIMEZONE,
-          workStartTime: DEFAULT_WORK_START,
-          workEndTime: DEFAULT_WORK_END,
-          workDays: DEFAULT_WORK_DAYS,
+          // No hours of its own: it follows Settings → Sending rules, so the
+          // organization's working hours (or "any time") apply until someone
+          // sets hours on this account.
           updatedAt: new Date(),
         })
         .returning({ id: linkedInAccounts.id });
