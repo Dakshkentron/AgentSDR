@@ -52,4 +52,10 @@ describe("canonical person variables", () => {
     expect(variables).not.toHaveProperty("FirstName");
     expect(variables).not.toHaveProperty("EMAIL");
   });
+  test("a lead with only a full name still fills first and last name, in either spelling", () => {
+    const variables = personVariables({ fullName: "Garvit Jain", raw: {} });
+    expect(fillTemplate("Hi {{firstName}} {{lastName}}", variables)).toBe("Hi Garvit Jain");
+    expect(fillTemplate("Thanks for connecting, {{first_name}}!", variables)).toBe("Thanks for connecting, Garvit!");
+    expect(fillTemplate("Hi {{firstName}}", personVariables({ firstName: "Pat", fullName: "Patricia Lee", raw: {} }))).toBe("Hi Pat");
+  });
 });

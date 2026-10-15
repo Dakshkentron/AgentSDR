@@ -42,9 +42,12 @@ export function personVariables(person: PersonVariableSource, company?: CompanyV
     const rendered = stringify(value);
     if (rendered !== null) set(key, rendered, false);
   }
+  // Leads from a LinkedIn search or a sheet often carry only a full name;
+  // without this {{firstName}} would render empty ("Hi ,").
+  const [derivedFirst, ...derivedRest] = (person.fullName ?? "").trim().split(/\s+/).filter(Boolean);
   const typed = {
-    firstName: person.firstName,
-    lastName: person.lastName,
+    firstName: person.firstName || derivedFirst,
+    lastName: person.lastName || (person.firstName ? null : derivedRest.join(" ")),
     fullName: person.fullName,
     name: person.fullName,
     title: person.title,

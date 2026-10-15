@@ -37,7 +37,9 @@ export function fillTemplate(
     /\{\{\s*([^{}\r\n]+?)\s*\}\}/g,
     (match, rawKey: string) => {
       const key = rawKey.trim();
-      return key.toLowerCase() === "signature" ? match : lookup.get(key.toLowerCase()) ?? "";
+      if (key.toLowerCase() === "signature") return match;
+      // {{first_name}} as people often write it finds {{firstName}}.
+      return lookup.get(key.toLowerCase()) ?? lookup.get(key.toLowerCase().replace(/_/g, "")) ?? "";
     },
   );
 }
