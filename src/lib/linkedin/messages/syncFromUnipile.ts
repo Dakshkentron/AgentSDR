@@ -2,7 +2,7 @@ import "server-only";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { connections, leads, linkedInAccounts, messages } from "@/lib/linkedin/schema";
-import { requirePlatformCredentials } from "@/lib/platform/credentials";
+import { unipileJson } from "./unipileApi";
 import { currentOrganizationId, inOrg } from "@/lib/tenancy/scope";
 
 /**
@@ -39,13 +39,17 @@ const ATTACHMENT_LABELS: Record<string, string> = {
   linkedin_post: "🔗 Shared a LinkedIn post",
 };
 
-/** The message's text, or a label for what it carried when it has none (photo, file, …). */
+/**
+ * The message's text, with a line naming each attachment (photo, file, …)
+ * so the inbox shows it; the thread loads the attachments themselves from
+ * Unipile for messages that carry such a line (see ./attachments).
+ */
 export function messageText(m: UnipileMessage): string | null {
-  if (m.text?.trim()) return m.text;
   const labels = (m.attachments ?? []).map((a) =>
     a.type === "file" ? `📎 ${a.file_name || "File"}` : (ATTACHMENT_LABELS[a.type ?? ""] ?? "📎 Attachment"),
   );
-  return labels.length ? labels.join("\n") : null;
+  const text = [m.text?.trim() ? m.text : null, ...labels].filter(Boolean).join("\n");
+  return text || null;
 }
 type UnipileAttendee = {
   provider_id?: string;
@@ -58,19 +62,12 @@ type UnipileAttendee = {
 
 export type MessageSyncResult = { accounts: number; conversations: number; messages: number };
 
-export async function syncLinkedinMessages(): Promise<MessageSyncResult> {
-  const { baseUrl, apiKey } = await requirePlatformCredentials("unipile");
-  const unipile = async <T>(path: string): Promise<T> => {
-    const response = await fetch(`${baseUrl}/api/v1${path}`, {
-      headers: { "X-API-KEY": apiKey, accept: "application/json" },
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      throw new Error(`Unipile answered ${response.status} to GET ${path}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
-    }
-    return response.json() as Promise<T>;
-  };
+/**
+ * `since` limits the sync to chats active after that time (the scheduled
+ * catch-up); without it every chat's full history is read (Sync messages).
+ */
+export async function syncLinkedinMessages(options: { since?: Date } = {}): Promise<MessageSyncResult> {
+  const unipile = unipileJson;
   /** Every item of a cursor-paged Unipile list, up to `cap`. */
   const all = async <T>(path: string, cap: number): Promise<T[]> => {
     const items: T[] = [];
@@ -87,7 +84,8 @@ export async function syncLinkedinMessages(): Promise<MessageSyncResult> {
   const result: MessageSyncResult = { accounts: accounts.length, conversations: 0, messages: 0 };
 
   for (const account of accounts) {
-    const chats = await all<UnipileChat>(`/chats?account_id=${encodeURIComponent(account.linkedinId)}`, MAX_CHATS_PER_ACCOUNT);
+    const after = options.since ? `&after=${encodeURIComponent(options.since.toISOString())}` : "";
+    const chats = await all<UnipileChat>(`/chats?account_id=${encodeURIComponent(account.linkedinId)}${after}`, MAX_CHATS_PER_ACCOUNT);
     for (const chat of chats) {
       // ponytail: one-to-one chats only; group threads have no single person to file them under.
       if (chat.type !== undefined && chat.type !== 0) continue;
@@ -139,10 +137,15 @@ export async function syncLinkedinMessages(): Promise<MessageSyncResult> {
         .returning({ id: connections.id, leadId: connections.leadId });
 
       const stored = await db
-        .select({ linkedinMessageId: messages.linkedinMessageId })
+        .select({ id: messages.id, linkedinMessageId: messages.linkedinMessageId, text: messages.text })
         .from(messages)
         .where(and(inOrg(messages), inArray(messages.linkedinMessageId, items.map((m) => m.id))));
       const known = new Set(stored.map((row) => row.linkedinMessageId));
+      // Stored before attachments were labelled: bring the text up to date so they show.
+      for (const row of stored) {
+        const text = items.find((m) => m.id === row.linkedinMessageId)?.text;
+        if (text && text !== row.text) await db.update(messages).set({ text }).where(and(inOrg(messages), eq(messages.id, row.id)));
+      }
       const fresh = items.filter((m) => !known.has(m.id));
       if (fresh.length > 0) {
         await db.insert(messages).values(

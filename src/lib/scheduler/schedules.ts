@@ -15,7 +15,7 @@
  */
 import { dailyAt, everyMinutes, type Schedule } from "./slots";
 
-export type PlatformJobName = "linkedin-run-outreach" | "linkedin-run-search-queue" | "linkedin-replay-webhooks" | "history-prune";
+export type PlatformJobName = "linkedin-run-outreach" | "linkedin-run-search-queue" | "linkedin-replay-webhooks" | "linkedin-sync-messages" | "history-prune";
 
 export type PlatformJob = {
   name: PlatformJobName;
@@ -54,6 +54,12 @@ export const PLATFORM_JOBS: readonly PlatformJob[] = [
     enabled: true,
     endpoint: "/api/linkedin/jobs/replay-webhooks",
     description: "Retry LinkedIn webhook deliveries that failed",
+  },
+  {
+    name: "linkedin-sync-messages",
+    schedule: everyMinutes(10),
+    enabled: true,
+    description: "Catch up LinkedIn chats active in the last day, for every organization",
   },
   {
     name: "history-prune",

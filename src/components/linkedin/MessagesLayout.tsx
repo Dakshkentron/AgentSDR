@@ -74,13 +74,49 @@ import { inboxCrmStepLabel } from "@/lib/linkedin/messages/crmContext";
 
 export type { ConnectionItem };
 
+type ThreadAttachment = { id: string; type: string; name: string | null; url: string | null; unavailable: boolean };
+
 type ThreadMessage = {
   id: string;
   type: string;
   text: string;
   seen: boolean;
   createdAt: string;
+  attachments?: ThreadAttachment[];
 };
+
+/** The label lines the sync writes for attachments; hidden once the attachments themselves load. */
+const ATTACHMENT_LINE = /^(📷 Photo|🎥 Video|🎤 Voice message|🔗 Shared a LinkedIn post|📎 .+)$/u;
+
+function MessageAttachments({ messageId, attachments }: { messageId: string; attachments: ThreadAttachment[] }) {
+  return (
+    <div className="mt-1 flex flex-col gap-2">
+      {attachments.map((a) => {
+        const src = `/api/linkedin/messages/attachment?message=${encodeURIComponent(messageId)}&attachment=${encodeURIComponent(a.id)}`;
+        const download = `${src}&download=1&name=${encodeURIComponent(a.name ?? "attachment")}`;
+        if (a.unavailable) return <span key={a.id} className="text-paragraph-xs opacity-70">Attachment no longer available</span>;
+        if (a.type === "linkedin_post") {
+          return a.url ? <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="underline">🔗 Open the LinkedIn post</a> : null;
+        }
+        if (a.type === "img") {
+          return (
+            <a key={a.id} href={src} target="_blank" rel="noreferrer" title="Open full size">
+              {/* eslint-disable-next-line @next/next/no-img-element -- streamed through our own authenticated route */}
+              <img src={src} alt={a.name ?? "Photo"} loading="lazy" className="max-h-72 max-w-full rounded-lg" />
+            </a>
+          );
+        }
+        if (a.type === "video") return <video key={a.id} src={src} controls preload="metadata" className="max-h-72 max-w-full rounded-lg" />;
+        if (a.type === "audio") return <audio key={a.id} src={src} controls preload="metadata" />;
+        return (
+          <a key={a.id} href={download} className="underline">
+            📎 {a.name ?? "Download file"}
+          </a>
+        );
+      })}
+    </div>
+  );
+}
 
 type FilterAccount = { id: string; username: string; name: string | null; profilePictureUrl: string | null };
 type FilterCampaign = { id: string; name: string };
@@ -630,7 +666,16 @@ export function MessagesLayout({
               />
             )}
             <Bubble outbound={isSent} first={isFirst} last={isLast} title={fullTime(date)}>
-              <ExpandableText text={msg.text} collapsed={msg.id !== lastId} />
+              {msg.attachments?.length ? (
+                <>
+                  {msg.text.split("\n").filter((line) => !ATTACHMENT_LINE.test(line)).join("\n").trim() && (
+                    <ExpandableText text={msg.text.split("\n").filter((line) => !ATTACHMENT_LINE.test(line)).join("\n").trim()} collapsed={msg.id !== lastId} />
+                  )}
+                  <MessageAttachments messageId={msg.id} attachments={msg.attachments} />
+                </>
+              ) : (
+                <ExpandableText text={msg.text} collapsed={msg.id !== lastId} />
+              )}
             </Bubble>
           </div>
         </Fragment>

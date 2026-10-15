@@ -6,6 +6,7 @@ import { pruneJobHistory } from "@/jobs/resetDailyLimits";
 import { replayLinkedinWebhooks } from "@/jobs/replayLinkedinWebhooks";
 import { runOutreach } from "@/jobs/runOutreach";
 import { runSearchQueue } from "@/jobs/runSearchQueue";
+import { syncLinkedinMessagesForAllOrganizations } from "@/jobs/syncLinkedinMessages";
 import { startTrackedJob } from "@/lib/linkedin/jobTracker";
 import { jobRuns } from "@/lib/linkedin/schema";
 import { pruneClaims } from "./claims";
@@ -49,6 +50,13 @@ export async function startPlatformJob(name: PlatformJobName): Promise<StartedJo
       let summary: Awaited<ReturnType<typeof replayLinkedinWebhooks>> | null = null;
       const { runId, done } = await startTrackedJob("replay-linkedin-webhooks", async () => {
         summary = await replayLinkedinWebhooks(100, undefined);
+      });
+      return { body: { ok: true, runId, summary }, done };
+    }
+    case "linkedin-sync-messages": {
+      let summary: Awaited<ReturnType<typeof syncLinkedinMessagesForAllOrganizations>> | null = null;
+      const { runId, done } = await startTrackedJob("sync-linkedin-messages", async () => {
+        summary = await syncLinkedinMessagesForAllOrganizations();
       });
       return { body: { ok: true, runId, summary }, done };
     }
