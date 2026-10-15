@@ -89,10 +89,13 @@ export const buildConnectionListWhere = (filters: ConnectionListFilters): SQL | 
     );
   }
 
-  if (filters.status === UNREPLIED_FILTER) {
+  if (filters.status === UNREPLIED_FILTER || filters.status === "REPLIED") {
+    // Needs reply: they wrote last. Replied: you answered last, in a
+    // conversation where they had written. The two never overlap.
     // Resolve the latest canonical message for all conversations in one pass.
     // A correlated lookup here becomes prohibitively slow on migrated history
     // because legacy databases may not have a Message.connectionId index.
+    const theyWroteLast = filters.status === UNREPLIED_FILTER;
     conditions.push(sql`${connections.id} IN (
       SELECT latest."connectionId"
       FROM (
@@ -105,39 +108,33 @@ export const buildConnectionListWhere = (filters: ConnectionListFilters): SQL | 
           AND m."duplicateOfMessageId" IS NULL
         ORDER BY m."connectionId", m."createdAt" DESC, m."id" DESC
       ) latest
-      WHERE latest."type" = 'RECEIVED'
+      WHERE ${theyWroteLast ? sql`latest."type" = 'RECEIVED'` : sql`latest."type" <> 'RECEIVED'`}
     )`);
+    if (!theyWroteLast) {
+      conditions.push(
+        exists(
+          db
+            .select({ one: messages.id })
+            .from(messages)
+            .where(and(eq(messages.connectionId, connections.id), eq(messages.type, "RECEIVED")))
+        )
+      );
+    }
   } else if (filters.status === CONNECTIONS_ONLY_FILTER) {
     conditions.push(isNull(connections.leadId));
   } else if (filters.status && !isAllLeadsFilter(filters.status)) {
-    const leadHasStatus = exists(
-      db
-        .select({ one: leads.id })
-        .from(leads)
-        .where(
-          and(
-            eq(leads.id, connections.leadId),
-            eq(leads.status, filters.status as LeadStatus)
-          )
-        )
-    );
-    // "Replied" also covers people outside campaigns who wrote to you: they
-    // have no lead status, so a received message is the reply.
     conditions.push(
-      filters.status === "REPLIED"
-        ? or(
-            leadHasStatus,
+      exists(
+        db
+          .select({ one: leads.id })
+          .from(leads)
+          .where(
             and(
-              isNull(connections.leadId),
-              exists(
-                db
-                  .select({ one: messages.id })
-                  .from(messages)
-                  .where(and(eq(messages.connectionId, connections.id), eq(messages.type, "RECEIVED")))
-              )
+              eq(leads.id, connections.leadId),
+              eq(leads.status, filters.status as LeadStatus)
             )
-          )!
-        : leadHasStatus
+          )
+      )
     );
   }
   // "All" is every conversation, campaign lead or not.

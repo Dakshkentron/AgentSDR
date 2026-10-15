@@ -737,21 +737,22 @@ export function MessagesLayout({
     setDraftWatchUntil(null);
   }, []);
 
-  const markUnread = useCallback(async (connId: string) => {
+  /** Mark unread (or read) without opening the conversation; used by the list rows and the thread header. */
+  const setRead = useCallback(async (connId: string, read: boolean) => {
     const res = await fetch("/api/linkedin/messages/unread", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ connectionId: connId }),
+      body: JSON.stringify({ connectionId: connId, read }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data?.ok) {
-      void dialogs.alert({ title: "Could not mark as unread", description: data?.error || "Please try again.", variant: "error" });
+      void dialogs.alert({ title: read ? "Could not mark as read" : "Could not mark as unread", description: data?.error || "Please try again.", variant: "error" });
       return;
     }
-    // Close it first: an open thread marks itself read again.
-    closeThread();
-    setConnections((prev) => prev.map((c) => (c.id === connId ? { ...c, unseenCount: Math.max(1, c.unseenCount) } : c)));
-  }, [closeThread, dialogs]);
+    // An open conversation marks itself read again, so marking it unread closes it.
+    if (!read && selected?.id === connId) closeThread();
+    setConnections((prev) => prev.map((c) => (c.id === connId ? { ...c, unseenCount: read ? 0 : Math.max(1, c.unseenCount) } : c)));
+  }, [closeThread, dialogs, selected?.id]);
 
   const scopeLabel =
     MESSAGE_SCOPE_OPTIONS.find((o) => o.value === statusFilter)?.label ?? STATUS_LABEL[statusFilter] ?? "Conversations";
@@ -776,8 +777,8 @@ export function MessagesLayout({
       value={statusFilter}
       onChange={changeStatusFilter}
       tabs={[
-        scopeTab(DEFAULT_MESSAGES_STATUS_FILTER, "Replied", "People who wrote back"),
-        scopeTab(UNREPLIED_FILTER, "Needs reply", "Latest message is from the prospect"),
+        scopeTab(DEFAULT_MESSAGES_STATUS_FILTER, "Replied", "You answered last"),
+        scopeTab(UNREPLIED_FILTER, "Needs reply", "They wrote last and are waiting on you"),
         scopeTab(ALL_LEADS_FILTER, "All", "Every conversation"),
       ]}
       moreGroups={[
@@ -973,10 +974,10 @@ export function MessagesLayout({
             <EmptyState
               compact
               icon={RiChatSmile3Line}
-              title={statusFilter === DEFAULT_MESSAGES_STATUS_FILTER ? "No replies yet" : `Nothing in “${scopeLabel}”`}
+              title={statusFilter === DEFAULT_MESSAGES_STATUS_FILTER ? "Nothing answered yet" : `Nothing in “${scopeLabel}”`}
               description={
                 statusFilter === DEFAULT_MESSAGES_STATUS_FILTER
-                  ? "Prospects who reply show up here. Switch to All to see everyone."
+                  ? "Conversations you have answered show up here. Needs reply lists the ones waiting on you."
                   : "Connections appear here after leads accept your invitations."
               }
             />
@@ -991,6 +992,7 @@ export function MessagesLayout({
             return (
               <Fragment key={conn.id}>
                 {heading && <DayHeading>{heading}</DayHeading>}
+                <div className="group/row relative" onContextMenu={(event) => { event.preventDefault(); void setRead(conn.id, hasUnseen); }}>
                 <ConversationRow
                   selected={selected?.id === conn.id}
                   unread={hasUnseen}
@@ -1019,6 +1021,14 @@ export function MessagesLayout({
                     </>
                   }
                 />
+                <button
+                  type="button"
+                  onClick={() => void setRead(conn.id, hasUnseen)}
+                  className="absolute bottom-2 right-2 rounded-md bg-bg-white-0 px-2 py-0.5 text-paragraph-xs text-text-sub-600 opacity-0 shadow-regular-xs ring-1 ring-inset ring-stroke-soft-200 transition-opacity hover:text-text-strong-950 focus-visible:opacity-100 group-hover/row:opacity-100"
+                >
+                  {hasUnseen ? "Mark read" : "Mark unread"}
+                </button>
+                </div>
               </Fragment>
             );
           })
@@ -1071,7 +1081,7 @@ export function MessagesLayout({
                   {selected.linkedinUrl && (
                     <HeaderAction icon={RiExternalLinkLine} label="LinkedIn profile" href={toLinkedinHref(selected.linkedinUrl)} external iconOnly />
                   )}
-                  <HeaderAction icon={RiMailUnreadLine} label="Mark as unread" onClick={() => void markUnread(selected.id)} iconOnly />
+                  <HeaderAction icon={RiMailUnreadLine} label="Mark unread" onClick={() => void setRead(selected.id, false)} />
                   <HeaderAction icon={RiLayoutRightLine} label={details.open ? "Hide details" : "Show details"} onClick={details.toggle} pressed={details.open} iconOnly />
                 </>
               }

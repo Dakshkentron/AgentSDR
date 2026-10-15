@@ -5,7 +5,8 @@ import { db } from "@/lib/db";
 import { inOrg } from "@/lib/tenancy/scope";
 import { messages } from "@/lib/linkedin/schema";
 
-// POST /api/linkedin/messages/unread { connectionId } — Messages → Mark as unread.
+// POST /api/linkedin/messages/unread { connectionId, read? } — Messages → Mark unread
+// (or, with read: true, Mark read without opening the conversation).
 // Flags the newest received message unseen (the newest message of any kind when
 // they never wrote), so the conversation shows as unread until it is opened again.
 export async function POST(req: NextRequest) {
@@ -13,6 +14,11 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => null);
     const connectionId = typeof body?.connectionId === "string" ? body.connectionId : null;
     if (!connectionId) return NextResponse.json({ ok: false, error: "connectionId required" }, { status: 400 });
+
+    if (body?.read === true) {
+      await db.update(messages).set({ seen: true }).where(and(inOrg(messages), eq(messages.connectionId, connectionId), eq(messages.seen, false)));
+      return NextResponse.json({ ok: true });
+    }
 
     const [message] = await db
       .select({ id: messages.id })
