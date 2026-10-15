@@ -9,6 +9,7 @@ import {
   RiExternalLinkLine,
   RiLayoutRightLine,
   RiLoader4Line,
+  RiMailUnreadLine,
   RiMessage3Line,
   RiSearchLine,
   RiUserSearchLine,
@@ -691,6 +692,22 @@ export function MessagesLayout({
     setDraftWatchUntil(null);
   }, []);
 
+  const markUnread = useCallback(async (connId: string) => {
+    const res = await fetch("/api/linkedin/messages/unread", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ connectionId: connId }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) {
+      void dialogs.alert({ title: "Could not mark as unread", description: data?.error || "Please try again.", variant: "error" });
+      return;
+    }
+    // Close it first: an open thread marks itself read again.
+    closeThread();
+    setConnections((prev) => prev.map((c) => (c.id === connId ? { ...c, unseenCount: Math.max(1, c.unseenCount) } : c)));
+  }, [closeThread, dialogs]);
+
   const scopeLabel =
     MESSAGE_SCOPE_OPTIONS.find((o) => o.value === statusFilter)?.label ?? STATUS_LABEL[statusFilter] ?? "Conversations";
 
@@ -1009,6 +1026,7 @@ export function MessagesLayout({
                   {selected.linkedinUrl && (
                     <HeaderAction icon={RiExternalLinkLine} label="LinkedIn profile" href={toLinkedinHref(selected.linkedinUrl)} external iconOnly />
                   )}
+                  <HeaderAction icon={RiMailUnreadLine} label="Mark as unread" onClick={() => void markUnread(selected.id)} iconOnly />
                   <HeaderAction icon={RiLayoutRightLine} label={details.open ? "Hide details" : "Show details"} onClick={details.toggle} pressed={details.open} iconOnly />
                 </>
               }
