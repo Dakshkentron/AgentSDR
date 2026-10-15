@@ -243,6 +243,9 @@ export function MessagesLayout({
   const [periodFilter, setPeriodFilter] = useState("");
   /** `category:<key>` or a subcategory id; only meaningful under a CRM-tracked status scope. */
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [syncing, setSyncing] = useState(false);
+  /** Bumped after a sync so the list reloads under the same filters. */
+  const [reloadToken, setReloadToken] = useState(0);
 
   const periodDays = periodFilter
     ? (TIME_PERIODS.find((p) => p.label === periodFilter)?.days ?? null)
@@ -337,7 +340,26 @@ export function MessagesLayout({
     return () => {
       cancelled = true;
     };
-  }, [fetchConnectionsPage, debouncedSearch, campaignFilter, accountFilter, statusFilter, periodDays, categoryKeyFilter, subcategoryIdFilter]);
+  }, [fetchConnectionsPage, debouncedSearch, campaignFilter, accountFilter, statusFilter, periodDays, categoryKeyFilter, subcategoryIdFilter, reloadToken]);
+
+  const syncMessages = useCallback(async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch("/api/linkedin/messages/sync", { method: "POST" });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) throw new Error(data?.error || "Could not sync messages");
+      lastLoadedFiltersKeyRef.current = "";
+      setReloadToken((n) => n + 1);
+      void dialogs.alert({
+        title: "Messages synced",
+        description: `${data.messages} new message${data.messages === 1 ? "" : "s"} across ${data.conversations} conversation${data.conversations === 1 ? "" : "s"}. Conversations with people outside your campaigns are under Show → Connections only.`,
+      });
+    } catch (err) {
+      void dialogs.alert({ title: "Could not sync messages", description: errorMessage(err), variant: "error" });
+    } finally {
+      setSyncing(false);
+    }
+  }, [dialogs]);
 
   const loadMoreConnections = useCallback(async () => {
     if (loadingMore || loadingList || !hasMore) return;
@@ -765,6 +787,12 @@ export function MessagesLayout({
         <PageHeader
           title="Messages"
           description="LinkedIn conversations from your campaigns, and who is waiting on a reply."
+          actions={
+            <Button.Root variant="neutral" mode="stroke" size="small" onClick={syncMessages} disabled={syncing}>
+              {syncing && <Button.Icon as={RiLoader4Line} className="animate-spin" />}
+              {syncing ? "Syncing…" : "Sync messages"}
+            </Button.Root>
+          }
         />
       }
     >
