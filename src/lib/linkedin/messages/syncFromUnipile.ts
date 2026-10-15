@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { connections, leads, linkedInAccounts, messages } from "@/lib/linkedin/schema";
 import { requirePlatformCredentials } from "@/lib/platform/credentials";
@@ -17,10 +17,13 @@ import { currentOrganizationId, inOrg } from "@/lib/tenancy/scope";
  * webhook adds nothing twice.
  */
 
-const CHATS_PER_ACCOUNT = 50;
-const MESSAGES_PER_CHAT = 50;
+const PAGE_SIZE = 100;
+// ponytail: caps keep one click bounded; raise them if an inbox outgrows them.
+const MAX_CHATS_PER_ACCOUNT = 2000;
+const MAX_MESSAGES_PER_CHAT = 500;
 
 type UnipileChat = { id: string; type?: number; attendee_provider_id?: string | null; timestamp?: string | null };
+type Page<T> = { items?: T[]; cursor?: string | null };
 type UnipileMessage = { id: string; text?: string | null; timestamp?: string | null; is_sender?: number | boolean };
 type UnipileAttendee = {
   provider_id?: string;
@@ -46,27 +49,44 @@ export async function syncLinkedinMessages(): Promise<MessageSyncResult> {
     }
     return response.json() as Promise<T>;
   };
+  /** Every item of a cursor-paged Unipile list, up to `cap`. */
+  const all = async <T>(path: string, cap: number): Promise<T[]> => {
+    const items: T[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: Page<T> = await unipile<Page<T>>(`${path}${path.includes("?") ? "&" : "?"}limit=${PAGE_SIZE}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+      items.push(...(page.items ?? []));
+      cursor = page.cursor ?? null;
+    } while (cursor && items.length < cap);
+    return items;
+  };
 
   const accounts = await db.select().from(linkedInAccounts).where(inOrg(linkedInAccounts));
   const result: MessageSyncResult = { accounts: accounts.length, conversations: 0, messages: 0 };
 
   for (const account of accounts) {
-    const chats = await unipile<{ items?: UnipileChat[] }>(
-      `/chats?account_id=${encodeURIComponent(account.linkedinId)}&limit=${CHATS_PER_ACCOUNT}`,
-    );
-    for (const chat of chats.items ?? []) {
+    const chats = await all<UnipileChat>(`/chats?account_id=${encodeURIComponent(account.linkedinId)}`, MAX_CHATS_PER_ACCOUNT);
+    for (const chat of chats) {
       // ponytail: one-to-one chats only; group threads have no single person to file them under.
       if (chat.type !== undefined && chat.type !== 0) continue;
+
+      // Nothing new since the last sync: the newest stored message is as recent as the chat.
+      if (chat.timestamp) {
+        const [latest] = await db
+          .select({ at: max(messages.createdAt) })
+          .from(messages)
+          .innerJoin(connections, eq(connections.id, messages.connectionId))
+          .where(and(inOrg(messages), eq(connections.chatId, chat.id)));
+        if (latest?.at && latest.at >= new Date(chat.timestamp)) continue;
+      }
 
       const attendees = await unipile<{ items?: UnipileAttendee[] }>(`/chats/${encodeURIComponent(chat.id)}/attendees`);
       const other = (attendees.items ?? []).find((a) => !a.is_self && a.provider_id);
       const providerId = other?.provider_id ?? chat.attendee_provider_id;
       if (!providerId) continue;
 
-      const history = await unipile<{ items?: UnipileMessage[] }>(
-        `/chats/${encodeURIComponent(chat.id)}/messages?limit=${MESSAGES_PER_CHAT}`,
-      );
-      const items = (history.items ?? []).filter((m) => m.id && m.text?.trim());
+      const history = await all<UnipileMessage>(`/chats/${encodeURIComponent(chat.id)}/messages`, MAX_MESSAGES_PER_CHAT);
+      const items = history.filter((m) => m.id && m.text?.trim());
       if (items.length === 0) continue;
 
       const [lead] = await db
@@ -76,6 +96,10 @@ export async function syncLinkedinMessages(): Promise<MessageSyncResult> {
         .limit(1);
 
       const now = new Date();
+      const firstAt = items.reduce<Date | null>((min, m) => {
+        const at = m.timestamp ? new Date(m.timestamp) : null;
+        return at && (!min || at < min) ? at : min;
+      }, null);
       const [connection] = await db
         .insert(connections)
         .values({
@@ -88,7 +112,8 @@ export async function syncLinkedinMessages(): Promise<MessageSyncResult> {
           chatId: chat.id,
           leadId: lead?.id ?? null,
           linkedinAccountId: account.id,
-          connectedAt: now,
+          // First message in the chat, so an unrelated sync does not make it look new.
+          connectedAt: firstAt ?? now,
           updatedAt: now,
         })
         .onConflictDoUpdate({
@@ -122,5 +147,16 @@ export async function syncLinkedinMessages(): Promise<MessageSyncResult> {
       result.messages += fresh.length;
     }
   }
+
+  // Earlier syncs stamped connectedAt with the sync time; pull it back to the first message.
+  await db.execute(sql`
+    UPDATE ${connections} c SET "connectedAt" = first."at"
+    FROM (
+      SELECT m."connectionId", MIN(m."createdAt") AS "at" FROM ${messages} m
+      WHERE m."organizationId" = ${currentOrganizationId()} GROUP BY m."connectionId"
+    ) first
+    WHERE c."id" = first."connectionId" AND c."organizationId" = ${currentOrganizationId()}
+      AND c."connectedAt" > first."at"
+  `);
   return result;
 }

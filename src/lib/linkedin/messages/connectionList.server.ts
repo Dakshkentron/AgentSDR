@@ -1,4 +1,4 @@
-import { and, count, desc, eq, exists, gte, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, exists, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { currentOrganizationId, inOrg } from "@/lib/tenancy/scope";
 import { crmConversations, crmRecords } from "@/lib/crm/schema";
@@ -31,6 +31,16 @@ import type { LeadStatus } from "@/lib/linkedin/schema";
  */
 const connectionAccount = sql`"connAccount"`;
 const leadAccount = sql`"leadAccount"`;
+
+/**
+ * When the conversation last moved: its newest message, else when the
+ * connection was made. Sorting and the period filter use this, not
+ * Connection.updatedAt, which a sync bumps for every conversation at once.
+ */
+const lastActivityAt = sql`COALESCE((
+  SELECT MAX(m."createdAt") FROM ${messages} m
+  WHERE m."connectionId" = ${connections.id} AND m."duplicateOfMessageId" IS NULL
+), ${connections.connectedAt})`;
 
 export const buildConnectionListWhere = (filters: ConnectionListFilters): SQL | undefined => {
   const conditions: SQL[] = [inOrg(connections)];
@@ -134,9 +144,7 @@ export const buildConnectionListWhere = (filters: ConnectionListFilters): SQL | 
 
   if (filters.periodDays) {
     const cutoff = new Date(Date.now() - filters.periodDays * 86_400_000);
-    conditions.push(
-      or(isNull(connections.connectedAt), gte(connections.connectedAt, cutoff))!
-    );
+    conditions.push(sql`${lastActivityAt} >= ${cutoff}`);
   }
 
   if (filters.categoryKey || filters.subcategoryId) {
@@ -275,7 +283,7 @@ export const listConnectionsPage = async (page: number, filters: ConnectionListF
       sql`${leadAccount}."id" = ${leads.linkedinAccountId}`
     )
     .where(where)
-    .orderBy(desc(connections.updatedAt))
+    .orderBy(sql`${lastActivityAt} DESC NULLS LAST`, desc(connections.updatedAt))
     .offset(skip)
     .limit(take);
 
