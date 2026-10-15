@@ -714,9 +714,9 @@ export function MessagesLayout({
       value={statusFilter}
       onChange={changeStatusFilter}
       tabs={[
-        scopeTab(DEFAULT_MESSAGES_STATUS_FILTER, "Replied", "Leads who replied"),
+        scopeTab(DEFAULT_MESSAGES_STATUS_FILTER, "Replied", "People who wrote back"),
         scopeTab(UNREPLIED_FILTER, "Needs reply", "Latest message is from the prospect"),
-        scopeTab(ALL_LEADS_FILTER, "All", "Every campaign lead"),
+        scopeTab(ALL_LEADS_FILTER, "All", "Every conversation"),
       ]}
       moreGroups={[
         { label: "Show", tabs: [scopeTab(CONNECTIONS_ONLY_FILTER, "Connections only", "Connections with no campaign lead")] },

@@ -1,4 +1,4 @@
-import { and, count, desc, eq, exists, gte, ilike, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, exists, gte, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { currentOrganizationId, inOrg } from "@/lib/tenancy/scope";
 import { crmConversations, crmRecords } from "@/lib/crm/schema";
@@ -100,22 +100,37 @@ export const buildConnectionListWhere = (filters: ConnectionListFilters): SQL | 
   } else if (filters.status === CONNECTIONS_ONLY_FILTER) {
     conditions.push(isNull(connections.leadId));
   } else if (filters.status && !isAllLeadsFilter(filters.status)) {
-    conditions.push(
-      exists(
-        db
-          .select({ one: leads.id })
-          .from(leads)
-          .where(
-            and(
-              eq(leads.id, connections.leadId),
-              eq(leads.status, filters.status as LeadStatus)
-            )
+    const leadHasStatus = exists(
+      db
+        .select({ one: leads.id })
+        .from(leads)
+        .where(
+          and(
+            eq(leads.id, connections.leadId),
+            eq(leads.status, filters.status as LeadStatus)
           )
-      )
+        )
     );
-  } else {
-    conditions.push(isNotNull(connections.leadId));
+    // "Replied" also covers people outside campaigns who wrote to you: they
+    // have no lead status, so a received message is the reply.
+    conditions.push(
+      filters.status === "REPLIED"
+        ? or(
+            leadHasStatus,
+            and(
+              isNull(connections.leadId),
+              exists(
+                db
+                  .select({ one: messages.id })
+                  .from(messages)
+                  .where(and(eq(messages.connectionId, connections.id), eq(messages.type, "RECEIVED")))
+              )
+            )
+          )!
+        : leadHasStatus
+    );
   }
+  // "All" is every conversation, campaign lead or not.
 
   if (filters.periodDays) {
     const cutoff = new Date(Date.now() - filters.periodDays * 86_400_000);
