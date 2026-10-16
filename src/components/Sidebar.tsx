@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import {
-  RiAddLine,
   RiArrowDownSLine,
   RiBookOpenLine,
   RiBugLine,
@@ -441,14 +440,6 @@ export default function Sidebar({ mobile = false, onClose }: { mobile?: boolean;
                 </Dropdown.Item>
               ))}
               {switchError && <p role="alert" className="px-2 py-1 text-paragraph-xs text-error-base">{switchError}</p>}
-              {!demo && (
-                <Dropdown.Item asChild>
-                  <Link href="/onboarding?new=1">
-                    <Dropdown.ItemIcon as={RiAddLine} />
-                    Create organization
-                  </Link>
-                </Dropdown.Item>
-              )}
               <Dropdown.Separator />
               <Dropdown.Item asChild>
                 <Link href={SETTINGS_HOME}>

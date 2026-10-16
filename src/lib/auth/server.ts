@@ -151,7 +151,9 @@ export const auth = betterAuth({
       ac,
       roles,
       teams: { enabled: true },
-      allowUserToCreateOrganization: (user) => mayCreateOrganization(user.id),
+      // One organization per person: only someone who belongs to none yet may
+      // create one (onboarding makes it, named after them).
+      allowUserToCreateOrganization: async (user) => !(await initialOrganizationId(user.id)) && mayCreateOrganization(user.id),
       invitationExpiresIn: 7 * 24 * 60 * 60,
       cancelPendingInvitationsOnReInvite: true,
       sendInvitationEmail: async ({ id, email, organization, inviter }) => {

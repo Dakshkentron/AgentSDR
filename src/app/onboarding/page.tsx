@@ -16,8 +16,7 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
   // Nobody is asked for an organization: the first one they belong to opens,
-  // or one named after them is made. The form is only for ?new=1 (Sidebar →
-  // create another) or when setting up failed.
+  // or one named after them is made. The form only shows if that failed.
   const [auto, setAuto] = useState(true);
   const started = useRef(false);
 
@@ -29,7 +28,6 @@ export default function OnboardingPage() {
     if (isPending || orgsPending || !session || started.current) return;
     started.current = true;
     void (async () => {
-      if (new URLSearchParams(window.location.search).get("new") === "1") return setAuto(false);
       if (orgs?.[0]) {
         if (!(await switchTo(orgs[0].id))) setAuto(false);
         return;

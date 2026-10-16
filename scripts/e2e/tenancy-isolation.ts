@@ -76,7 +76,8 @@ async function signIn(email: string, password: string, label: string): Promise<S
 
 async function organizationB(): Promise<{ session: Session; organizationId: string }> {
   const stamp = Date.now();
-  const email = `isolation-b+${stamp}@example.test`;
+  // A domain that accepts mail: browser sign-ups check the domain has MX records.
+  const email = `isolation-b+${stamp}@gmail.com`;
   const password = "isolation-b-password-1";
   const signUp = await authPost("/sign-up/email", { name: "Isolation B", email, password });
   if (!signUp.ok) throw new Error(`B sign-up failed (${signUp.status}) ${await signUp.text()}`);
