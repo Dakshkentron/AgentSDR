@@ -26,7 +26,7 @@ export function SignUpForm({ googleEnabled, from, inviteOnly = false }: { google
       return;
     }
     setLoading(true);
-    const { error: err } = await authClient.signUp.email({ name, email, password, callbackURL: target });
+    const { data, error: err } = await authClient.signUp.email({ name, email, password, callbackURL: target });
     setLoading(false);
     if (err) {
       setError(
@@ -34,6 +34,11 @@ export function SignUpForm({ googleEnabled, from, inviteOnly = false }: { google
           ? "An account with this email already exists. Try signing in."
           : err.message || "Something went wrong. Please try again.",
       );
+      return;
+    }
+    // Without a mail provider the account comes back already signed in.
+    if (data?.token) {
+      window.location.href = target;
       return;
     }
     setSent(true);
