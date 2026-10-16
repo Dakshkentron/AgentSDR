@@ -27,13 +27,6 @@ import { mayCreateAccount, mayCreateOrganization } from "./signup";
 
 const baseURL = process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL;
 
-/**
- * Email + password accounts are confirmed by email only when mail can be
- * sent (RESEND_API_KEY). Without it a new account is signed in at once, and
- * the only check is that its domain accepts mail (user.create.before below).
- */
-const emailVerificationRequired = Boolean(process.env.RESEND_API_KEY);
-
 const googleConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 
 /** The organization a fresh session opens in: the one the user joined first. */
@@ -59,7 +52,10 @@ export const auth = betterAuth({
 
   emailAndPassword: {
     enabled: true,
-    requireEmailVerification: emailVerificationRequired,
+    // No confirmation email: a sign-up's address is checked by its domain
+    // accepting mail (user.create.before below), then the person signs in.
+    requireEmailVerification: false,
+    autoSignIn: false,
     minPasswordLength: 8,
     revokeSessionsOnPasswordReset: true,
     // Not awaited: Better Auth's docs warn that waiting on delivery leaks,
@@ -78,7 +74,7 @@ export const auth = betterAuth({
   },
 
   emailVerification: {
-    sendOnSignUp: emailVerificationRequired,
+    sendOnSignUp: false,
     autoSignInAfterVerification: true,
     sendVerificationEmail: async ({ user, url }) => {
       void sendAuthEmail(
