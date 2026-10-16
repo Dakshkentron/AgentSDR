@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { authClient } from "@/lib/auth/client";
 import { AuthShell } from "@/components/auth/AuthShell";
-import { ErrorCallout, Field, InfoCallout, SecondaryButton, SubmitButton, linkClass } from "@/components/auth/fields";
+import { ErrorCallout, Field, InfoCallout, SubmitButton, linkClass } from "@/components/auth/fields";
 import { GoogleButton, OrDivider } from "@/components/auth/GoogleButton";
 
 export function SignUpForm({ googleEnabled, from, inviteOnly = false }: { googleEnabled: boolean; from: string | null; inviteOnly?: boolean }) {
@@ -14,9 +14,6 @@ export function SignUpForm({ googleEnabled, from, inviteOnly = false }: { google
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [sent, setSent] = useState(false);
-  const [resending, setResending] = useState(false);
-  const [resent, setResent] = useState(false);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -26,7 +23,7 @@ export function SignUpForm({ googleEnabled, from, inviteOnly = false }: { google
       return;
     }
     setLoading(true);
-    const { data, error: err } = await authClient.signUp.email({ name, email, password, callbackURL: target });
+    const { error: err } = await authClient.signUp.email({ name, email, password, callbackURL: target });
     setLoading(false);
     if (err) {
       setError(
@@ -36,21 +33,10 @@ export function SignUpForm({ googleEnabled, from, inviteOnly = false }: { google
       );
       return;
     }
-    // Without a mail provider the account comes back already signed in.
-    if (data?.token) {
-      window.location.href = target;
-      return;
-    }
-    setSent(true);
-  }
-
-  async function resend() {
-    setResending(true);
-    setError("");
-    const { error: err } = await authClient.sendVerificationEmail({ email, callbackURL: target });
-    setResending(false);
-    if (err) setError(err.message || "Could not send the email. Please try again.");
-    else setResent(true);
+    // No confirmation email: the account exists now, so on to sign in.
+    const params = new URLSearchParams({ created: "1", email });
+    if (from) params.set("from", from);
+    window.location.href = `/sign-in?${params}`;
   }
 
   const q = from ? `?from=${encodeURIComponent(from)}` : "";
@@ -62,28 +48,6 @@ export function SignUpForm({ googleEnabled, from, inviteOnly = false }: { google
       </Link>
     </>
   );
-
-  if (sent) {
-    return (
-      <AuthShell title="Check your email to confirm your address" subtitle={`We sent a confirmation link to ${email}. Open it to finish creating your account.`} footer={footer}>
-        <div className="flex flex-col gap-3">
-          {inviteOnly && (
-            <InfoCallout>
-              This instance is invite-only: if {email} hasn&apos;t been invited, no account was created and no email will arrive.
-            </InfoCallout>
-          )}
-          {error && <ErrorCallout>{error}</ErrorCallout>}
-          {resent ? (
-            <InfoCallout>Sent again. It can take a minute to arrive.</InfoCallout>
-          ) : (
-            <SecondaryButton onClick={resend} loading={resending}>
-              Resend verification email
-            </SecondaryButton>
-          )}
-        </div>
-      </AuthShell>
-    );
-  }
 
   return (
     <AuthShell title="Create your AgentSDR account" footer={footer}>
