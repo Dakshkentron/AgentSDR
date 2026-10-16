@@ -54,8 +54,9 @@ export const auth = betterAuth({
     enabled: true,
     // No confirmation email: a sign-up's address is checked by its domain
     // accepting mail (user.create.before below), then the person signs in.
+    // autoSignIn stays on: turning it off makes Better Auth answer a refused
+    // or duplicate sign-up with a fake success, so no error ever showed.
     requireEmailVerification: false,
-    autoSignIn: false,
     minPasswordLength: 8,
     revokeSessionsOnPasswordReset: true,
     // Not awaited: Better Auth's docs warn that waiting on delivery leaks,
