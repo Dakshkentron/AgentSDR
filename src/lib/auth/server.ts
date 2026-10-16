@@ -121,8 +121,10 @@ export const auth = betterAuth({
       create: {
         // AUTH_SIGNUP=invite-only: no account without a pending invitation
         // (the instance's very first account excepted). Covers Google too.
-        before: async (user) => {
-          if (!user.emailVerified && !(await emailDomainAcceptsMail(user.email))) {
+        before: async (user, context) => {
+          // Only a sign-up from a browser (context.request): seed scripts and
+          // tests create users server-side on reserved domains (demo@example.com).
+          if (context?.request && !user.emailVerified && !(await emailDomainAcceptsMail(user.email))) {
             throw new APIError("BAD_REQUEST", {
               message: "That email address's domain doesn't accept mail. Check it for typos.",
             });
