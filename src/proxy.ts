@@ -41,6 +41,8 @@ const PUBLIC = [
   // under this prefix authenticates itself with authorizeRecorder() (see
   // src/lib/calls/sessions.ts) — never add a route here that doesn't.
   "/api/call-recorder/",
+  // Leopile, the Unipile-compatible provider hosted here; every request carries the workspace access token (src/lib/leopile/api.ts).
+  "/api/leopile/api/v1/",
 ];
 
 /**

@@ -65,6 +65,9 @@ export const SCOPED_TABLES: readonly ScopedTable[] = [
   snake("call_messages"),
   snake("whatsapp_accounts"),
   snake("whatsapp_campaigns"),
+  // Leopile (the in-app Unipile-compatible provider)
+  snake("leopile_workspaces"),
+  snake("leopile_accounts"),
   // LinkedIn (ex-Prisma, camelCase columns)
   pascal("LinkedInAccount"),
   pascal("Campaign"),
