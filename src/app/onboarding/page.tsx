@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { authClient, useListOrganizations, useSession } from "@/lib/auth/client";
 import { slugify } from "@/lib/auth/slug";
 import { AuthShell } from "@/components/auth/AuthShell";
@@ -8,17 +8,42 @@ import { ErrorCallout, Field, SecondaryButton, SubmitButton } from "@/components
 
 export default function OnboardingPage() {
   const { data: session, isPending } = useSession();
-  const { data: orgs } = useListOrganizations();
+  const { data: orgs, isPending: orgsPending } = useListOrganizations();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugEdited, setSlugEdited] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
+  // Nobody is asked for an organization: the first one they belong to opens,
+  // or one named after them is made. The form is only for ?new=1 (Sidebar →
+  // create another) or when setting up failed.
+  const [auto, setAuto] = useState(true);
+  const started = useRef(false);
 
   useEffect(() => {
     if (!isPending && !session) window.location.href = "/sign-in?from=/onboarding";
   }, [isPending, session]);
+
+  useEffect(() => {
+    if (isPending || orgsPending || !session || started.current) return;
+    started.current = true;
+    void (async () => {
+      if (new URLSearchParams(window.location.search).get("new") === "1") return setAuto(false);
+      if (orgs?.[0]) {
+        if (!(await switchTo(orgs[0].id))) setAuto(false);
+        return;
+      }
+      const orgName = session.user.name?.trim() || session.user.email.split("@")[0];
+      // A short random suffix keeps the URL name unique without asking for one.
+      const created = await authClient.organization.create({ name: orgName, slug: `${slugify(orgName) || "workspace"}-${crypto.randomUUID().slice(0, 6)}` });
+      if (created.error || !created.data) {
+        setError(created.error?.message || "Could not create your organization.");
+        return setAuto(false);
+      }
+      if (!(await switchTo(created.data.id))) setAuto(false);
+    })();
+  }, [isPending, orgsPending, session, orgs]);
 
   function onName(value: string) {
     setName(value);
@@ -49,18 +74,22 @@ export default function OnboardingPage() {
     window.location.assign("/analytics");
   }
 
-  async function switchTo(id: string) {
+  async function switchTo(id: string): Promise<boolean> {
     setError("");
     setSwitching(id);
     const { error: err } = await authClient.organization.setActive({ organizationId: id });
     if (err) {
       setError(err.message || "Could not switch organization.");
-      return setSwitching(null);
+      setSwitching(null);
+      return false;
     }
     window.location.assign("/analytics");
+    return true;
   }
 
   const hasOrgs = !!orgs && orgs.length > 0;
+
+  if (auto) return <AuthShell title="Setting up your workspace…" subtitle="This takes a second.">{null}</AuthShell>;
 
   return (
     <AuthShell
