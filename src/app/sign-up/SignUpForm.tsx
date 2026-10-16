@@ -4,10 +4,10 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { authClient } from "@/lib/auth/client";
 import { AuthShell } from "@/components/auth/AuthShell";
-import { ErrorCallout, Field, InfoCallout, SubmitButton, linkClass } from "@/components/auth/fields";
+import { ErrorCallout, Field, SubmitButton, linkClass } from "@/components/auth/fields";
 import { GoogleButton, OrDivider } from "@/components/auth/GoogleButton";
 
-export function SignUpForm({ googleEnabled, from, inviteOnly = false }: { googleEnabled: boolean; from: string | null; inviteOnly?: boolean }) {
+export function SignUpForm({ googleEnabled, from }: { googleEnabled: boolean; from: string | null }) {
   const target = from || "/analytics";
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -51,11 +51,6 @@ export function SignUpForm({ googleEnabled, from, inviteOnly = false }: { google
 
   return (
     <AuthShell title="Create your AgentSDR account" footer={footer}>
-      {inviteOnly && (
-        <div className="mb-5">
-          <InfoCallout>This AgentSDR instance is invite-only. Sign up with the email address your invitation was sent to.</InfoCallout>
-        </div>
-      )}
       <form onSubmit={submit} className="flex flex-col gap-5">
         <Field label="Name" type="text" autoComplete="name" required value={name} onChange={(e) => setName(e.target.value)} />
         <Field label="Work email" type="email" autoComplete="email" placeholder="name@company.com" required value={email} onChange={(e) => setEmail(e.target.value)} />
