@@ -8,6 +8,7 @@ import { organization } from "better-auth/plugins";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { authEmail, sendAuthEmail } from "./email";
+import { emailDomainAcceptsMail } from "./emailDomain";
 import { ac, roles } from "./permissions";
 import { authSchema, members } from "./schema";
 import { mayCreateAccount, mayCreateOrganization } from "./signup";
@@ -25,6 +26,13 @@ import { mayCreateAccount, mayCreateOrganization } from "./signup";
  */
 
 const baseURL = process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL;
+
+/**
+ * Email + password accounts are confirmed by email only when mail can be
+ * sent (RESEND_API_KEY). Without it a new account is signed in at once, and
+ * the only check is that its domain accepts mail (user.create.before below).
+ */
+const emailVerificationRequired = Boolean(process.env.RESEND_API_KEY);
 
 const googleConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 
@@ -51,7 +59,7 @@ export const auth = betterAuth({
 
   emailAndPassword: {
     enabled: true,
-    requireEmailVerification: true,
+    requireEmailVerification: emailVerificationRequired,
     minPasswordLength: 8,
     revokeSessionsOnPasswordReset: true,
     // Not awaited: Better Auth's docs warn that waiting on delivery leaks,
@@ -70,7 +78,7 @@ export const auth = betterAuth({
   },
 
   emailVerification: {
-    sendOnSignUp: true,
+    sendOnSignUp: emailVerificationRequired,
     autoSignInAfterVerification: true,
     sendVerificationEmail: async ({ user, url }) => {
       void sendAuthEmail(
@@ -114,6 +122,11 @@ export const auth = betterAuth({
         // AUTH_SIGNUP=invite-only: no account without a pending invitation
         // (the instance's very first account excepted). Covers Google too.
         before: async (user) => {
+          if (!user.emailVerified && !(await emailDomainAcceptsMail(user.email))) {
+            throw new APIError("BAD_REQUEST", {
+              message: "That email address's domain doesn't accept mail. Check it for typos.",
+            });
+          }
           if (!(await mayCreateAccount(user.email))) {
             throw new APIError("FORBIDDEN", {
               message: "Sign-up on this AgentSDR instance is by invitation only. Ask an admin to invite you.",
