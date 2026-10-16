@@ -80,7 +80,7 @@ export type NavSection = { label?: string; entries: NavEntry[] };
 
 const link = (href: string, label: string, icon: RemixiconComponentType, extra: Partial<NavLink> = {}): NavLink => ({ kind: "link", href, label, icon, ...extra });
 
-export const NAV_SECTIONS: NavSection[] = [
+const ALL_NAV_SECTIONS: NavSection[] = [
   {
     entries: [
       link("/analytics", "Analytics", RiBarChartBoxLine),
@@ -152,6 +152,15 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
 ];
+
+// ponytail: Email and WhatsApp are hidden from the nav for now (their pages
+// still work by URL). Empty this set to show them again.
+const HIDDEN_NAV_GROUPS = new Set(["email", "whatsapp"]);
+
+export const NAV_SECTIONS: NavSection[] = ALL_NAV_SECTIONS.map((section) => ({
+  ...section,
+  entries: section.entries.filter((entry) => !(entry.kind === "group" && HIDDEN_NAV_GROUPS.has(entry.id))),
+}));
 
 export const NAV_FOOTER: NavEntry[] = [
   {
