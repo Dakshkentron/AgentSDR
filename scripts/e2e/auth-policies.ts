@@ -90,7 +90,7 @@ check("invite-only: an invited address can sign up", (await signUp(invitee)).ok)
 const inviteeOrg = await createOrg(await signIn(invitee), `invitee-org-${stamp}`);
 check("invite-only: an invited member cannot create organizations", !inviteeOrg.ok);
 const secondOperatorOrg = await createOrg(await signIn(operator), `operator-second-${stamp}`);
-check("invite-only: the operator can create further organizations", secondOperatorOrg.ok);
+check("one organization per person: the operator cannot create a second", !secondOperatorOrg.ok);
 
 // ---- operator ------------------------------------------------------------
 await auth.api.setActiveOrganization({ headers: await signIn(operator), body: { organizationId: firstOrg.id! } });
@@ -99,16 +99,18 @@ check(
   "fresh install: the first organization's owner is the platform operator",
   operatorCtx.organizationId === firstOrg.id && (await isPlatformOperator(operatorCtx)),
 );
-check(
-  "fresh install: an owner of a later organization is not",
-  !(await isPlatformOperator({ organizationId: secondOperatorOrg.id!, roles: ["owner"] })),
-);
 
 // ---- open ----------------------------------------------------------------
 process.env.AUTH_SIGNUP = "open";
 const walkIn = `walk-in+${stamp}@example.com`;
 check("open: anyone can sign up", (await signUp(walkIn)).ok);
-check("open: anyone can create an organization", (await createOrg(await signIn(walkIn), `walk-in-org-${stamp}`)).ok);
+const walkInOrg = await createOrg(await signIn(walkIn), `walk-in-org-${stamp}`);
+check("open: anyone can create an organization", walkInOrg.ok);
+check(
+  "fresh install: an owner of a later organization is not the platform operator",
+  !(await isPlatformOperator({ organizationId: walkInOrg.id!, roles: ["owner"] })),
+);
+check("one organization per person: a second one is refused", !(await createOrg(await signIn(walkIn), `walk-in-second-${stamp}`)).ok);
 
 console.log(failures ? `\n✗ ${failures} failure(s)` : "\n✓ all auth policy checks pass");
 process.exit(failures ? 1 : 0);
