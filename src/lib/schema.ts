@@ -21,9 +21,6 @@ export * from "./calls/schema";
 // WhatsApp messaging through Unipile: linked numbers, chats, messages.
 export * from "./whatsapp/schema";
 
-// Leopile: the Unipile-compatible LinkedIn provider hosted in this app.
-export * from "./leopile/schema";
-
 // Sending rules per organization and channel (src/lib/channels/rules.ts).
 export * from "./channels/schema";
 

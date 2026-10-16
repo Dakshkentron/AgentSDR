@@ -274,9 +274,7 @@ function normalize<K extends PlatformKey>(key: K, raw: Record<string, string>): 
     // The dashboard shows the DSN without a scheme; accept it as shown.
     const dsn = text("baseUrl").replace(/\/+$/, "");
     const baseUrl = dsn && !/^[a-z]+:\/\//i.test(dsn) ? `https://${dsn}` : dsn;
-    // Leopile (src/lib/leopile) is a Unipile-compatible server in this app: its DSN is our own
-    // origin plus /api/leopile, and plain http is allowed on a local machine only.
-    if (baseUrl && !/^(https:\/\/[^\s/]+|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?)(\/api\/leopile)?$/.test(baseUrl)) {
+    if (baseUrl && !/^https:\/\/[^\s/]+$/.test(baseUrl)) {
       throw new Error("Unipile DSN must look like api8.unipile.com:13851");
     }
     const value: PlatformCredentials["unipile"] = {

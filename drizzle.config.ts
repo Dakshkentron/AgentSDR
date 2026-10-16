@@ -94,8 +94,6 @@ const OWNED_TABLES = [
   "grid_rows",
   "grid_tables",
   "grid_workbooks",
-  "leopile_accounts",
-  "leopile_workspaces",
   "outreach_campaigns",
   "outreach_emails",
   "outreach_leads",
