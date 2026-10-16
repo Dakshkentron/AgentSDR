@@ -33,7 +33,9 @@ export function SignUpForm({ googleEnabled, from }: { googleEnabled: boolean; fr
       );
       return;
     }
-    // No confirmation email: the account exists now, so on to sign in.
+    // No confirmation email: the account exists now. Sign-up also signed it
+    // in; sign out so the person signs in themselves on the next page.
+    await authClient.signOut();
     const params = new URLSearchParams({ created: "1", email });
     if (from) params.set("from", from);
     window.location.href = `/sign-in?${params}`;
