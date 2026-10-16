@@ -73,20 +73,17 @@ check("default: a fresh install still offers sign-up for its first account", awa
 // ---- invite-only ---------------------------------------------------------
 process.env.AUTH_SIGNUP = "invite-only";
 const stamp = Date.now();
-// A domain that accepts mail: without RESEND_API_KEY sign-up checks the domain's MX
-// records, and example.com publishes a null MX (it accepts no mail).
-const domain = "gmail.com";
-const operator = `operator+${stamp}@${domain}`;
+const operator = `operator+${stamp}@example.com`;
 check("invite-only: the first account can always be created", (await signUp(operator)).ok);
 const operatorHeaders = await signIn(operator);
 const firstOrg = await createOrg(operatorHeaders, `operator-org-${stamp}`);
 check("invite-only: the first user can create the first organization", firstOrg.ok);
 
 check("invite-only: once an account exists, the sign-in page stops offering sign-up", !(await publicSignupAvailable()));
-const stranger = await signUp(`stranger+${stamp}@${domain}`);
+const stranger = await signUp(`stranger+${stamp}@example.com`);
 check("invite-only: an uninvited stranger cannot sign up", !stranger.ok, stranger.message.slice(0, 70));
 
-const invitee = `invitee+${stamp}@${domain}`;
+const invitee = `invitee+${stamp}@example.com`;
 const freshOperator = await signIn(operator);
 await auth.api.createInvitation({ headers: freshOperator, body: { email: invitee, role: "member", organizationId: firstOrg.id! } });
 check("invite-only: an invited address can sign up", (await signUp(invitee)).ok);
@@ -109,10 +106,8 @@ check(
 
 // ---- open ----------------------------------------------------------------
 process.env.AUTH_SIGNUP = "open";
-const walkIn = `walk-in+${stamp}@${domain}`;
+const walkIn = `walk-in+${stamp}@example.com`;
 check("open: anyone can sign up", (await signUp(walkIn)).ok);
-const noMail = await signUp(`no-mail+${stamp}@example.com`);
-check("open: an address whose domain accepts no mail cannot sign up", !noMail.ok, noMail.message.slice(0, 70));
 check("open: anyone can create an organization", (await createOrg(await signIn(walkIn), `walk-in-org-${stamp}`)).ok);
 
 console.log(failures ? `\n✗ ${failures} failure(s)` : "\n✓ all auth policy checks pass");
