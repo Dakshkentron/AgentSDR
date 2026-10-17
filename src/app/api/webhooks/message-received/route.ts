@@ -19,6 +19,7 @@ import {
 } from "@/lib/linkedin/webhooks/inbox";
 import { currentOrganizationId, inOrg, maybeCurrentOrganizationId, runInOrganization } from "@/lib/tenancy/scope";
 import { checkUnipileWebhookSecret, gateUnipileWebhook, organizationIdForLinkedinAccount } from "@/lib/linkedin/organizations.server";
+import { syncAllAccounts } from "@/functions/syncAllAccounts";
 
 const REPLY_STATUSES: LeadStatus[] = [
   "ACCEPT_MESSAGE_SENT",
@@ -65,10 +66,27 @@ export async function POST(req: NextRequest) {
 
   const replay = internalWebhookReplayId(req) !== null;
   const accountId = typeof body?.account_id === "string" ? body.account_id : null;
-  const organizationId = replay && maybeCurrentOrganizationId()
+  let organizationId = replay && maybeCurrentOrganizationId()
     ? maybeCurrentOrganizationId()
     : accountId ? await organizationIdForLinkedinAccount(accountId) : null;
-  const gate = replay ? ({ verdict: "legacy" } as const) : await gateUnipileWebhook(req, organizationId);
+  let gate = replay ? ({ verdict: "legacy" } as const) : await gateUnipileWebhook(req, organizationId);
+
+  // A flaky LinkedIn session makes Unipile/Leopile reissue the account a new
+  // id mid-session; a webhook can name that new id before our periodic sync
+  // has stored it. The gate only reaches this reason once the URL's own
+  // org=/secret have already checked out, so it's safe to resync that one
+  // organization's accounts and look the (now current) id up again before
+  // giving up on the message — the same self-heal the WhatsApp webhook does
+  // for an account it doesn't recognise yet.
+  if (!replay && gate.verdict === "ignore" && gate.reason === "account not linked to this organization yet" && accountId) {
+    const claimed = req.nextUrl.searchParams.get("org")!;
+    await runInOrganization(claimed, syncAllAccounts).catch((err) =>
+      console.error(`[webhook/message-received] resync for ${claimed} failed: ${serializeError(err)}`),
+    );
+    organizationId = await organizationIdForLinkedinAccount(accountId);
+    gate = await gateUnipileWebhook(req, organizationId);
+  }
+
   if (gate.verdict === "reject") return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (gate.verdict === "ignore") {
     console.warn(`[webhook/message-received] Account ${accountId ?? "?"} ignored: ${gate.reason}`);
