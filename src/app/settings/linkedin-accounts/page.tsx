@@ -13,41 +13,40 @@ export const dynamic = "force-dynamic";
 
 export const metadata = { title: "LinkedIn accounts" };
 
-async function Accounts() {
+async function loadData() {
   const ctx = await requirePageOrgContext();
   const [{ accountRows, sentTodayMap, pendingLeadsMap }, rules] = await runInOrganization(ctx.organizationId, () =>
     Promise.all([loadConnectedAccounts(), channelRules("linkedin")]),
   );
-
-  return (
-    <>
-      <Suspense fallback={null}>
-        <HostedAuthReturn />
-      </Suspense>
-
-      <AccountsClient
-        accounts={accountRows}
-        sentTodayMap={sentTodayMap}
-        pendingLeadsMap={pendingLeadsMap}
-        inviteLimits={{ premium: rules.invitesPerDayPremium, free: rules.invitesPerDayFree }}
-      />
-    </>
-  );
+  return { accountRows, sentTodayMap, pendingLeadsMap, rules };
 }
 
-export default function LinkedInAccountsPage() {
+export default async function LinkedInAccountsPage() {
+  const { accountRows, sentTodayMap, pendingLeadsMap, rules } = await loadData();
+
   return (
     <SettingsPage
       title="LinkedIn accounts"
       description="The LinkedIn profiles campaigns send from, connected through Unipile."
       actions={
-        <RequiresPlatform platform="unipile" fallback={null}>
-          <ConnectAccountButton />
-        </RequiresPlatform>
+        accountRows.length === 0 && (
+          <RequiresPlatform platform="unipile" fallback={null}>
+            <ConnectAccountButton />
+          </RequiresPlatform>
+        )
       }
     >
       <RequiresPlatform platform="unipile">
-        <Accounts />
+        <Suspense fallback={null}>
+          <HostedAuthReturn />
+        </Suspense>
+
+        <AccountsClient
+          accounts={accountRows}
+          sentTodayMap={sentTodayMap}
+          pendingLeadsMap={pendingLeadsMap}
+          inviteLimits={{ premium: rules.invitesPerDayPremium, free: rules.invitesPerDayFree }}
+        />
       </RequiresPlatform>
     </SettingsPage>
   );
