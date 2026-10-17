@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { companies, people } from "@/lib/leads/schema";
 import { personVariables } from "@/lib/leads/variables";
 import { fillTemplate } from "@/lib/outreach/render";
-import { campaigns, leads, linkedInAccounts, messages } from "@/lib/linkedin/schema";
+import { campaigns, connections, leads, linkedInAccounts, messages } from "@/lib/linkedin/schema";
 import { extractApiErrorDetail, serializeError } from "@/lib/linkedin/serializeError";
 import {
   isInvitationMessageTooLong,
@@ -39,6 +39,43 @@ const isAccountLimitError = (err: unknown): boolean => {
   // names (verifyQuotaAndCreateV2), which paused accounts on unrelated failures.
   return /weekly|invitation[_ ]?limit|limit[_ ](reached|exceeded)|quota[_ ](reached|exceeded)|exceeded[^.]*(limit|quota)|too many (invitations|requests)/i
     .test(extractApiErrorDetail(err.body));
+};
+
+const isAlreadyConnectedError = (err: unknown): boolean =>
+  err instanceof UnsuccessfulRequestError
+  && /already (connected|a connection|in your network)|ALREADY_CONNECTED|is a 1st[- ]degree/i.test(extractApiErrorDetail(err.body));
+
+/** A Connection row for this person on this account, or a resolved profile saying 1st degree. */
+const isAlreadyConnected = async (
+  lead: { leadData: unknown },
+  providerId: string,
+  accountId: string,
+): Promise<boolean> => {
+  const distance = (lead.leadData as { network_distance?: unknown } | null)?.network_distance;
+  if (distance === "FIRST_DEGREE" || distance === "DISTANCE_1") return true;
+  const [row] = await db.select({ id: connections.id }).from(connections).where(and(
+    inOrg(connections),
+    eq(connections.providerId, providerId),
+    eq(connections.linkedinAccountId, accountId),
+  )).limit(1);
+  return Boolean(row);
+};
+
+/** Drop the unsent invitation claim and attach the lead to its (new or existing) Connection. */
+const skipInviteForConnection = async (leadId: string, providerId: string, accountId: string, messageId: string) => {
+  await db.transaction(async (tx) => {
+    await tx.delete(messages).where(and(inOrg(messages), eq(messages.id, messageId), sql`${messages.linkedinMessageId} is null`));
+    await tx.insert(connections).values({
+      organizationId: currentOrganizationId(),
+      providerId,
+      linkedinAccountId: accountId,
+      leadId,
+      updatedAt: new Date(),
+    }).onConflictDoUpdate({
+      target: [connections.providerId, connections.linkedinAccountId],
+      set: { leadId, updatedAt: new Date() },
+    });
+  });
 };
 
 export const sendInvitations = async (account: LinkedInAccount): Promise<void> => {
@@ -169,6 +206,15 @@ export const sendInvitations = async (account: LinkedInAccount): Promise<void> =
       continue;
     }
 
+    // Already a 1st-degree connection: no invitation to send. Link the lead to the connection
+    // and leave it REQUEST_SENT — sendFollowUps' missed-acceptance pass sends the acceptance
+    // message and the sequence continues from there.
+    if (await isAlreadyConnected(lead, providerId, account.id)) {
+      await skipInviteForConnection(lead.id, providerId, account.id, claimed.messageId);
+      console.log(`[sendInvitations] ${lead.linkedinUrl} is already a connection — skipping the invitation, messaging instead`);
+      continue;
+    }
+
     try {
       const linkedinMessageId = await sendConnectionRequest(providerId, invitationMessage, account.linkedinId);
       if (!linkedinMessageId) {
@@ -184,6 +230,11 @@ export const sendInvitations = async (account: LinkedInAccount): Promise<void> =
       const delay = pickInRange(rules.inviteDelaySeconds) * 1000;
       await sleep(delay);
     } catch (err) {
+      if (isAlreadyConnectedError(err)) {
+        await skipInviteForConnection(lead.id, providerId, account.id, claimed.messageId);
+        console.log(`[sendInvitations] LinkedIn says ${lead.linkedinUrl} is already a connection — messaging instead`);
+        continue;
+      }
       if (isAccountLimitError(err)) {
         console.warn(`[sendInvitations] Account limit reached for ${account.username} — pausing for today: ${serializeError(err)}`);
         // Revert the claim so the lead can be picked up by another account or next day

@@ -94,7 +94,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         followUp1Message: campaign.followUp1Message ?? lead.followUp1Message,
         followUp2Message: campaign.followUp2Message ?? lead.followUp2Message,
         followUp3Message: campaign.followUp3Message ?? lead.followUp3Message,
-        ...(person ? personProfile(person, company) : {
+        // A lead not yet resolved has no Person URL; the identifier it was added with still links.
+        ...(person ? { ...personProfile(person, company), linkedinUrl: personProfile(person, company).linkedinUrl || lead.sourceLinkedinIdentifier || "" } : {
           email: null,
           linkedinUrl: lead.sourceLinkedinIdentifier ?? "",
           firstName: null,

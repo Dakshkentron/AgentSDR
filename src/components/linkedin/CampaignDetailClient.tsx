@@ -199,9 +199,10 @@ export function CampaignDetailClient({
               />
               {campaign.status === "ACTIVE" ? "Pause" : "Resume"}
             </Button.Root>
-            {/* Send now starts the campaign early; once it has triggered, the engine keeps it running. */}
-            {campaign.status === "ACTIVE" && !campaign.triggeredAt && (
-              <Button.Root variant="primary" mode="filled" size="small" onClick={() => void sendNow()} disabled={sending} title="Start the campaign now instead of at its trigger time">
+            {/* Always available: before the trigger it starts the campaign; after it, it sends to
+                leads added since (and any still waiting) without waiting for the next run. */}
+            {campaign.status === "ACTIVE" && (
+              <Button.Root variant="primary" mode="filled" size="small" onClick={() => void sendNow()} disabled={sending} title={campaign.triggeredAt ? "Send to waiting leads now instead of at the next scheduled run" : "Start the campaign now instead of at its trigger time"}>
                 <Button.Icon as={sending ? RiLoader4Line : RiSendPlaneLine} className={cn(sending && "animate-spin")} />
                 Send now
               </Button.Root>
