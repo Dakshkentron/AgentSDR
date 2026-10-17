@@ -87,7 +87,8 @@ export function CampaignOverview({
     { key: "inSequence", label: "In sequence", value: f.inSequence, color: "#e5930a", icon: RiLoader4Line },
     { key: "completed", label: "Completed, no reply", value: f.completed, color: STATUS.good, icon: RiCheckboxCircleLine },
     { key: "replied", label: "Replied", value: f.replied, color: "#7d52f4", icon: RiReplyLine },
-    { key: "failed", label: "Failed or cancelled", value: f.failed + f.cancelled, color: STATUS.critical, icon: RiErrorWarningLine },
+    { key: "cancelled", label: "Already connected, skipped", value: f.cancelled, color: "#14b8a6", icon: RiCheckDoubleLine },
+    { key: "failed", label: "Failed", value: f.failed, color: STATUS.critical, icon: RiErrorWarningLine },
   ];
 
   const n = (key: string) => s[key] ?? 0;
@@ -108,7 +109,7 @@ export function CampaignOverview({
         <KpiCell icon={RiSendPlaneLine} label="Invited" value={formatCompact(f.invited)} context={pct(f.invited, f.total) ? `${pct(f.invited, f.total)} of leads` : undefined} hint="Leads sent a connection request, whatever happened next." />
         <KpiCell icon={RiCheckDoubleLine} label="Accepted" value={formatCompact(f.accepted)} context={f.acceptanceRate !== null ? `${formatPercent(f.acceptanceRate)} acceptance rate` : undefined} hint="Leads who accepted the connection request. Acceptance rate is accepted ÷ invited." />
         <KpiCell icon={RiChat1Line} label="Replied" value={formatCompact(f.replied)} context={f.replyRate !== null ? `${formatPercent(f.replyRate)} of accepted` : undefined} hint="Leads who replied. Reply rate is replied ÷ accepted, as on Analytics." />
-        <KpiCell icon={RiErrorWarningLine} label="Failed" value={formatCompact(f.failed)} context={f.cancelled > 0 ? `${formatCompact(f.cancelled)} cancelled` : f.failed > 0 ? "Invitations that could not be sent" : "None"} hint="Leads whose invitation could not be sent after every retry." />
+        <KpiCell icon={RiErrorWarningLine} label="Failed" value={formatCompact(f.failed)} context={f.cancelled > 0 ? `${formatCompact(f.cancelled)} already connected, skipped` : f.failed > 0 ? "Invitations that could not be sent" : "None"} hint="Leads whose invitation could not be sent after every retry." />
       </KpiStrip>
 
       <ChartCard

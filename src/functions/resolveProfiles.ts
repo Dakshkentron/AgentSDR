@@ -1,15 +1,16 @@
 import { isPlatformConnected } from "@/lib/platform/credentials";
 import { inOrg } from "@/lib/tenancy/scope";
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { companies, people } from "@/lib/leads/schema";
 import { enrichPersonById, withLeadTransaction } from "@/lib/leads/records";
-import { campaigns, connections, leads as leadsTable, messages } from "@/lib/linkedin/schema";
+import { campaigns, leads as leadsTable } from "@/lib/linkedin/schema";
 import { getProfile } from "@/services/unipile.service";
 import type { LinkedInAccount } from "@/lib/linkedin/schema";
 import { serializeError } from "@/lib/linkedin/serializeError";
 import { claimLeadForResolution, recordResolveFailure } from "@/lib/linkedin/inviteRetry.server";
 import { pendingLeadsResolvableByAccount } from "@/lib/linkedin/leadOutreachEligibility";
+import { collapseDuplicateCampaignLead } from "@/lib/linkedin/searchIdentity.server";
 import { normalizeLinkedinApiHint, publicSlugFromSourceIdentifier } from "@/lib/leads/identity";
 import { channelRules } from "@/lib/channels/rules.server";
 import { pickInRange } from "@/lib/channels/rules";
@@ -122,29 +123,7 @@ export const resolveProfiles = async (
           source: `enrichment:linkedin-profile:${lead.id}`,
         }, { replaceNames: Boolean(resolvedFullName) });
 
-        const [duplicate] = lead.campaignId
-          ? await tx
-              .select({ id: leadsTable.id })
-              .from(leadsTable)
-              .where(and(
-                inOrg(leadsTable),
-                eq(leadsTable.personId, person.id),
-                eq(leadsTable.campaignId, lead.campaignId),
-                ne(leadsTable.id, lead.id),
-              ))
-              .limit(1)
-          : [];
-        if (duplicate) {
-          const [message] = await tx.select({ id: messages.id }).from(messages).where(and(inOrg(messages), eq(messages.leadId, lead.id))).limit(1);
-          const [connection] = await tx.select({ id: connections.id }).from(connections).where(and(inOrg(connections), eq(connections.leadId, lead.id))).limit(1);
-          if (message || connection) {
-            throw new Error(
-              `Cannot collapse duplicate campaign Lead ${lead.id}: it already has message or connection history`,
-            );
-          }
-          await tx.delete(leadsTable).where(and(inOrg(leadsTable), eq(leadsTable.id, lead.id)));
-          return;
-        }
+        if (await collapseDuplicateCampaignLead(tx, lead, person.id)) return;
         await tx
           .update(leadsTable)
           .set({

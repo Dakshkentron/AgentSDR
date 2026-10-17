@@ -98,6 +98,11 @@ export function linkedinLookupIdentifier(value: string): string {
  */
 const MEMBER_URN_PATTERN = /^AC[A-Za-z0-9_-]{20,}$/;
 
+/** A bare LinkedIn member id ("ACoAA…") — usable as a Unipile provider_id. */
+export function isLinkedinMemberId(value: string | null | undefined): value is string {
+  return MEMBER_URN_PATTERN.test(value?.trim() ?? "");
+}
+
 /**
  * The canonical public slug a source identifier already carries, or null when
  * it is opaque. Lets profile resolution keep a lead whose slug we searched with

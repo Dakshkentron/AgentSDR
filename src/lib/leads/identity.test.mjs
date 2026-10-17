@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isLinkedinMemberId,
   linkedinProfileUrl,
   inferCompanyDomainFromEmail,
   inferLinkedinApi,
@@ -85,5 +86,14 @@ describe("linkedinProfileUrl", () => {
     expect(linkedinProfileUrl(null, "", "ACoAAAtuUW0AbCdEfGhIjKlMnOp")).toBe("https://www.linkedin.com/in/ACoAAAtuUW0AbCdEfGhIjKlMnOp/");
     expect(linkedinProfileUrl("https://www.linkedin.com/sales/lead/x,y", "jane")).toBe("https://www.linkedin.com/in/jane/");
     expect(linkedinProfileUrl("not a slug", undefined)).toBeNull();
+  });
+});
+
+describe("isLinkedinMemberId", () => {
+  test("accepts bare member ids only", () => {
+    expect(isLinkedinMemberId("ACoAAAtuUW0AbCdEfGhIjKlMnOp")).toBe(true);
+    expect(isLinkedinMemberId("jane-doe")).toBe(false);
+    expect(isLinkedinMemberId("linkedin.com/in/ACoAAAtuUW0AbCdEfGhIjKlMnOp")).toBe(false);
+    expect(isLinkedinMemberId(null)).toBe(false);
   });
 });

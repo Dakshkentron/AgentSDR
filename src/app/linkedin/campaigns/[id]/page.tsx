@@ -7,6 +7,8 @@ import { campaignAccounts, campaigns, leads, linkedInAccounts } from "@/lib/link
 import { CampaignDetailClient } from "@/components/linkedin/CampaignDetailClient";
 import { listCampaignLeadsPage } from "@/lib/linkedin/campaignLeads";
 import { statusCountsForCampaign } from "@/lib/linkedin/campaignLeadStats";
+import { channelRules } from "@/lib/channels/rules.server";
+import { platformJob } from "@/lib/scheduler/schedules";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +19,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
 
     // Prisma's nested `accounts` include and `_count: { select: { leads: true } }`
     // become side queries keyed off the campaign id.
-    const [campaignRows, campaignAccountRows, [{ totalLeads }], accounts, statusCounts, initialLeadsPage] =
+    const [campaignRows, campaignAccountRows, [{ totalLeads }], accounts, statusCounts, initialLeadsPage, rules] =
       await Promise.all([
         db
           .select({
@@ -61,7 +63,9 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           .orderBy(asc(linkedInAccounts.username)),
         statusCountsForCampaign(id),
         listCampaignLeadsPage(id, 1),
+        channelRules("linkedin"),
       ]);
+    const outreachSchedule = platformJob("linkedin-run-outreach").schedule;
 
     const campaign = campaignRows[0];
 
@@ -89,6 +93,12 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         }}
         initialLeadsPage={initialLeadsPage}
         accounts={accounts}
+        pacing={{
+          perRun: rules.invitesPerRun,
+          everyMinutes: outreachSchedule.kind === "interval" ? outreachSchedule.minutes : null,
+          perDayPremium: rules.invitesPerDayPremium,
+          perDayFree: rules.invitesPerDayFree,
+        }}
       />
     );
   });

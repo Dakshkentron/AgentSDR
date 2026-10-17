@@ -21,7 +21,7 @@ import type { SearchBatchLeadRow } from "@/lib/linkedin/searchBatches";
 import { cn } from "@/utils/cn";
 
 type Account = { id: string; username: string; name: string | null; profilePictureUrl: string | null };
-type SearchLead = Pick<SearchBatchLeadRow, "id" | "linkedinUrl" | "sourceLinkedinApi" | "name" | "headline" | "location">;
+type SearchLead = Pick<SearchBatchLeadRow, "id" | "linkedinUrl" | "sourceLinkedinApi" | "publicIdentifier" | "networkDistance" | "name" | "headline" | "location">;
 
 const EXCLUDE_OPTIONS = [
   { key: "excludeBlacklisted", label: "Exclude leads on your blacklist", hint: "People marked Do Not Contact." },
@@ -165,6 +165,8 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
           rows: pendingSearchLeads.map((lead) => ({
             linkedinUrl: lead.linkedinUrl,
             sourceLinkedinApi: lead.sourceLinkedinApi,
+            publicIdentifier: lead.publicIdentifier,
+            networkDistance: lead.networkDistance,
             name: lead.name,
             headline: lead.headline,
             location: lead.location,

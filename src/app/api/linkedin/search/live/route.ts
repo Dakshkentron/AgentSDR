@@ -57,13 +57,15 @@ export async function POST(req: NextRequest) {
           ok: true,
           results: [{
             linkedinUrl: profile.publicIdentifier ?? profile.providerId,
+            providerId: profile.providerId,
+            publicIdentifier: profile.publicIdentifier,
             sourceLinkedinApi: inferLinkedinApi(query),
             name,
             headline: profile.headline || profile.currentTitle,
             company: profile.currentCompanyName,
             location: profile.location,
             profilePictureUrl: profile.profilePictureUrl,
-            networkDistance: null,
+            networkDistance: typeof profile.leadData?.network_distance === "string" ? profile.leadData.network_distance : null,
           }],
         });
       }
@@ -83,9 +85,15 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const url = kind === "companies" && !/^https?:\/\//i.test(query)
+      let url = kind === "companies" && !/^https?:\/\//i.test(query)
         ? `https://www.linkedin.com/search/results/companies/?keywords=${encodeURIComponent(query)}`
         : toSearchUrl(query);
+      // "My connections": LinkedIn's 1st-degree facet, which Unipile and Leopile both honour.
+      if (kind === "people" && body?.connectionsOnly === true) {
+        const u = new URL(url);
+        u.searchParams.set("network", JSON.stringify(["F"]));
+        url = u.toString();
+      }
       let result;
       try {
         result = await searchLinkedIn(account.linkedinId, url);
@@ -122,6 +130,8 @@ export async function POST(req: NextRequest) {
           if (!linkedinUrl) return null;
           return {
             linkedinUrl,
+            providerId: str(item.provider_id) ?? str(item.id),
+            publicIdentifier: str(item.public_identifier),
             sourceLinkedinApi,
             name: personName(item),
             headline: str(item.headline) ?? str(item.occupation) ?? str(item.title),

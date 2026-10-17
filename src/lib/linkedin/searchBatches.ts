@@ -58,6 +58,8 @@ export type SearchBatchLeadRow = {
   linkedinUrl: string;
   /** Browsable profile link, dug out of `raw`. Null when the payload had none. */
   profileUrl: string | null;
+  /** Public slug from `raw`, when the search returned one. */
+  publicIdentifier: string | null;
   sourceLinkedinApi: string | null;
   companyName: string | null;
   name: string | null;
@@ -203,6 +205,9 @@ export async function getSearchBatchDetail(id: string): Promise<SearchBatchDetai
       id: r.id,
       linkedinUrl: r.linkedinUrl,
       profileUrl: profileUrlFromRaw(r.raw, r.linkedinUrl),
+      publicIdentifier: typeof (r.raw as Record<string, unknown> | null)?.public_identifier === "string"
+        ? (r.raw as Record<string, string>).public_identifier
+        : null,
       sourceLinkedinApi: r.sourceLinkedinApi,
       companyName,
       name: r.name,

@@ -7,6 +7,7 @@ import { campaigns, searchBatches, searchQueries, searchResults } from "@/lib/li
 import { importLeadRows, mapSpreadsheetRowsWithMapping, suggestedLinkedinMapping } from "@/lib/linkedin/importLeads";
 import { buildImportLeadsJsonResponse } from "@/lib/linkedin/importLeadsResponse";
 import { serializeError } from "@/lib/linkedin/serializeError";
+import { applyKnownLinkedinIdentities, identityFromRaw } from "@/lib/linkedin/searchIdentity.server";
 
 // POST /api/linkedin/campaigns/:id/from-search { batchId } — adds everyone a
 // LinkedIn search found to the campaign. Same rows and import path as the
@@ -31,8 +32,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         .where(inArray(searchQueries.batchId, [batchId]))
         .orderBy(asc(searchResults.createdAt));
       const seen = new Set<string>();
-      const rows = found
-        .filter(({ result }) => !seen.has(result.linkedinUrl) && seen.add(result.linkedinUrl))
+      const unique = found.filter(({ result }) => !seen.has(result.linkedinUrl) && seen.add(result.linkedinUrl));
+      const rows = unique
         .map(({ result, companyName }) => ({
           "Company Name": companyName ?? "",
           "LinkedIn URL": result.linkedinUrl,
@@ -48,6 +49,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         attachCampaignToExisting: true,
         filename: `LinkedIn search: ${batch.name}`,
       });
+      await applyKnownLinkedinIdentities(campaignId, unique.map(({ result }) =>
+        identityFromRaw(result.linkedinUrl, result.sourceLinkedinApi, result.raw, result.networkDistance)));
       return NextResponse.json(buildImportLeadsJsonResponse(result));
     } catch (err) {
       return NextResponse.json({ ok: false, error: serializeError(err) }, { status: 500 });

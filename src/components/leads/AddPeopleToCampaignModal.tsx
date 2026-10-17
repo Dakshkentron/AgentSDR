@@ -15,6 +15,8 @@ type PersonRow = {
 
 type LiveResult = {
   linkedinUrl: string;
+  providerId?: string | null;
+  publicIdentifier?: string | null;
   sourceLinkedinApi: string | null;
   name: string | null;
   headline: string | null;
@@ -26,13 +28,16 @@ type LiveResult = {
 
 type LiveCompany = { id: string; name: string; industry: string | null; location: string | null; peopleSearchUrl: string };
 
+/** Leopile says DISTANCE_1/2/3, Unipile FIRST_DEGREE/SECOND_DEGREE/THIRD_DEGREE. */
+const degree = (d: string | null): 1 | 2 | 3 | null =>
+  d === "DISTANCE_1" || d === "FIRST_DEGREE" ? 1 : d === "DISTANCE_2" || d === "SECOND_DEGREE" ? 2 : d === "DISTANCE_3" || d === "THIRD_DEGREE" ? 3 : null;
+
 function networkBadge(d: string | null): string | null {
-  if (!d) return null;
-  const n = d.replace("DISTANCE_", "");
-  if (n === "1") return "1st · connection";
-  if (n === "2") return "2nd";
-  if (n === "3") return "3rd";
-  return n === "OUT_OF_NETWORK" ? "Out of network" : null;
+  const n = degree(d);
+  if (n === 1) return "1st · connected, won't be invited";
+  if (n === 2) return "2nd";
+  if (n === 3) return "3rd";
+  return d === "OUT_OF_NETWORK" ? "Out of network" : null;
 }
 
 const isProfileUrl = (value: string) => /^https?:\/\//i.test(value) || /linkedin\.com\//i.test(value);
@@ -61,6 +66,7 @@ export default function AddPeopleToCampaignModal({
   // path lands in a preview list; nothing is added until "Add N leads".
   const [liveBusy, setLiveBusy] = useState(false);
   const [liveKind, setLiveKind] = useState<"people" | "companies">("people");
+  const [connectionsOnly, setConnectionsOnly] = useState(false);
   const [liveResults, setLiveResults] = useState<LiveResult[] | null>(null);
   const [liveCompanies, setLiveCompanies] = useState<LiveCompany[] | null>(null);
   const [liveCompanyName, setLiveCompanyName] = useState<string | null>(null);
@@ -129,7 +135,7 @@ export default function AddPeopleToCampaignModal({
       const response = await fetch("/api/linkedin/search/live", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: keywords, kind }),
+        body: JSON.stringify({ query: keywords, kind, connectionsOnly }),
       });
       const body = await response.json();
       if (!response.ok || !body.ok) throw new Error(body.error ?? "LinkedIn search failed");
@@ -214,6 +220,12 @@ export default function AddPeopleToCampaignModal({
                 <option value="companies">Companies</option>
               </select>
             )}
+            {channel === "linkedin" && !pastedUrl && liveKind === "people" && (
+              <label className="flex shrink-0 items-center gap-1.5 text-paragraph-sm text-text-sub-600" title="Search only your 1st-degree connections. They are not invited.">
+                <Checkbox.Root checked={connectionsOnly} onCheckedChange={(v) => setConnectionsOnly(v === true)} />
+                My connections
+              </label>
+            )}
             {channel === "linkedin" && (
               <Button.Root variant="primary" mode="filled" size="medium" className="shrink-0" disabled={!query.trim() || liveBusy} onClick={runLinkedinLookup}>
                 {liveBusy && <Button.Icon as={RiLoader4Line} className="animate-spin" />}
@@ -260,7 +272,9 @@ export default function AddPeopleToCampaignModal({
                     <span className="block truncate text-paragraph-xs text-text-sub-600">{[r.headline, r.company, r.location].filter(Boolean).join(" · ")}</span>
                   </span>
                   {networkBadge(r.networkDistance) && (
-                    <span className="shrink-0 rounded-full bg-success-lighter px-2 py-0.5 text-label-xs text-success-base">{networkBadge(r.networkDistance)}</span>
+                    <span className={degree(r.networkDistance) === 1
+                      ? "shrink-0 rounded-full bg-warning-lighter px-2 py-0.5 text-label-xs text-warning-base"
+                      : "shrink-0 rounded-full bg-bg-soft-200 px-2 py-0.5 text-label-xs text-text-sub-600"}>{networkBadge(r.networkDistance)}</span>
                   )}
                   <Button.Root variant="neutral" mode="ghost" size="xxsmall" onClick={() => setLiveResults((current) => (current ?? []).filter((x) => x.linkedinUrl !== r.linkedinUrl))}>
                     Remove

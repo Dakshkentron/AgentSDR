@@ -13,6 +13,7 @@ export const campaignLeadListSelect = {
   id: leads.id,
   personId: leads.personId,
   sourceLinkedinIdentifier: leads.sourceLinkedinIdentifier,
+  providerId: leads.providerId,
   name: leads.name,
   headline: leads.headline,
   location: leads.location,
@@ -35,6 +36,7 @@ type CampaignLeadRow = {
   id: string;
   personId: string | null;
   sourceLinkedinIdentifier: string | null;
+  providerId?: string | null;
   name: string | null;
   headline: string | null;
   location: string | null;
@@ -78,6 +80,9 @@ export const mapCampaignLeadForClient = (
     company: null,
     variables: {},
   }),
+  // Public slug first; until a profile lookup finds it, the member id from the
+  // search links to the same profile (linkedinProfileUrl accepts both).
+  linkedinUrl: l.person?.linkedinUrl || l.providerId || l.sourceLinkedinIdentifier || "",
   status: l.status,
   requestSentAt: l.requestSentAt?.toISOString() ?? null,
   invitationMessage: l.invitationMessage,

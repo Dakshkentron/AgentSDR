@@ -8,8 +8,9 @@ import { getProfile } from "@/services/unipile.service";
 import { importLeadRows, mapSpreadsheetRowsWithMapping, suggestedLinkedinMapping } from "@/lib/linkedin/importLeads";
 import { buildImportLeadsJsonResponse } from "@/lib/linkedin/importLeadsResponse";
 import { serializeError } from "@/lib/linkedin/serializeError";
+import { applyKnownLinkedinIdentities, type KnownLinkedinIdentity } from "@/lib/linkedin/searchIdentity.server";
 
-type LiveRow = { linkedinUrl: string; sourceLinkedinApi?: string | null; name?: string | null; headline?: string | null; company?: string | null; location?: string | null };
+type LiveRow = { linkedinUrl: string; sourceLinkedinApi?: string | null; providerId?: string | null; publicIdentifier?: string | null; networkDistance?: string | null; name?: string | null; headline?: string | null; company?: string | null; location?: string | null };
 
 /**
  * POST /api/linkedin/campaigns/:id/from-lookup — adds leads AgentSDR hasn't
@@ -30,6 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (!campaign) return NextResponse.json({ ok: false, error: "Campaign not found" }, { status: 404 });
 
       let sheetRows: Record<string, string>[];
+      let identities: KnownLinkedinIdentity[];
 
       if (url) {
         // Prefer a sender already assigned to this campaign, but a campaign mid-setup
@@ -62,6 +64,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           Headline: profile.headline ?? "",
           Location: profile.location ?? "",
         }];
+        identities = [{
+          source: sheetRows[0]["LinkedIn URL"],
+          providerId: profile.providerId,
+          publicIdentifier: profile.publicIdentifier,
+          networkDistance: typeof profile.leadData?.network_distance === "string" ? profile.leadData.network_distance : null,
+        }];
       } else {
         sheetRows = rows!
           .filter((r) => r.linkedinUrl)
@@ -73,6 +81,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             Company: r.company ?? "",
             Location: r.location ?? "",
           }));
+        identities = rows!.filter((r) => r.linkedinUrl).map((r) => ({
+          source: r.linkedinUrl,
+          sourceApi: r.sourceLinkedinApi,
+          providerId: r.providerId,
+          publicIdentifier: r.publicIdentifier,
+          networkDistance: r.networkDistance,
+        }));
       }
 
       if (sheetRows.length === 0) return NextResponse.json({ ok: false, error: "Nothing to add" }, { status: 400 });
@@ -82,6 +97,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         attachCampaignToExisting: true,
         filename: url ? `LinkedIn profile: ${url}` : "LinkedIn live search",
       });
+      await applyKnownLinkedinIdentities(campaignId, identities);
       return NextResponse.json(buildImportLeadsJsonResponse(result));
     } catch (err) {
       return NextResponse.json({ ok: false, error: serializeError(err) }, { status: 500 });

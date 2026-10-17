@@ -71,10 +71,13 @@ export function CampaignDetailClient({
   campaign: initial,
   initialLeadsPage,
   accounts,
+  pacing,
 }: {
   campaign: Campaign;
   initialLeadsPage: InitialLeadsPage;
   accounts: LinkedInAccount[];
+  /** Sending rules behind the "why not all at once" line. */
+  pacing: { perRun: readonly [number, number]; everyMinutes: number | null; perDayPremium: number; perDayFree: number };
 }) {
   const router = useRouter();
   const dialogs = useDialogs();
@@ -220,6 +223,13 @@ export function CampaignDetailClient({
           { label: "Senders", value: campaign.accounts.length.toLocaleString("en-US"), icon: RiUserVoiceLine, hint: campaign.accounts.map((a) => a.name ?? a.username).join(", ") || "No sender accounts assigned" },
         ]}
       />
+
+      {funnel.queued > 0 && (
+        <p className="mt-3 text-paragraph-xs text-text-sub-600">
+          Invitations go out gradually to keep senders safe: {pacing.perRun[0] === pacing.perRun[1] ? pacing.perRun[0] : `${pacing.perRun[0]}–${pacing.perRun[1]}`} per sender per run
+          {pacing.everyMinutes ? `, every ${pacing.everyMinutes} min` : ""}, up to {pacing.perDayPremium}/day per premium sender ({pacing.perDayFree}/day free) — {funnel.queued.toLocaleString("en-US")} waiting.
+        </p>
+      )}
 
       <PageTabs
         className="mt-6"

@@ -67,20 +67,18 @@ const isAlreadyConnected = async (
   return Boolean(row);
 };
 
-/** Drop the unsent invitation claim and attach the lead to its (new or existing) Connection. */
-const skipInviteForConnection = async (leadId: string, providerId: string, accountId: string, messageId: string) => {
+/**
+ * Already a 1st-degree connection: nothing is sent — no invitation and no message.
+ * Drop the unsent claim and park the lead as CANCELLED ("Already connected" in the
+ * UI), which no LinkedIn job acts on. requestSentAt is cleared so it does not count
+ * against today's invitations.
+ */
+const markAlreadyConnected = async (leadId: string, messageId: string) => {
   await db.transaction(async (tx) => {
     await tx.delete(messages).where(and(inOrg(messages), eq(messages.id, messageId), sql`${messages.linkedinMessageId} is null`));
-    await tx.insert(connections).values({
-      organizationId: currentOrganizationId(),
-      providerId,
-      linkedinAccountId: accountId,
-      leadId,
-      updatedAt: new Date(),
-    }).onConflictDoUpdate({
-      target: [connections.providerId, connections.linkedinAccountId],
-      set: { leadId, updatedAt: new Date() },
-    });
+    await tx.update(leads)
+      .set({ status: "CANCELLED", requestSentAt: null, resolveLastError: "Already connected — not invited or messaged" })
+      .where(and(inOrg(leads), eq(leads.id, leadId)));
   });
 };
 
@@ -212,12 +210,9 @@ export const sendInvitations = async (account: LinkedInAccount): Promise<void> =
       continue;
     }
 
-    // Already a 1st-degree connection: no invitation to send. Link the lead to the connection
-    // and leave it REQUEST_SENT — sendFollowUps' missed-acceptance pass sends the acceptance
-    // message and the sequence continues from there.
     if (await isAlreadyConnected(lead, providerId, account.id)) {
-      await skipInviteForConnection(lead.id, providerId, account.id, claimed.messageId);
-      console.log(`[sendInvitations] ${lead.linkedinUrl} is already a connection — skipping the invitation, messaging instead`);
+      await markAlreadyConnected(lead.id, claimed.messageId);
+      console.log(`[sendInvitations] ${lead.linkedinUrl} is already a connection — not invited, not messaged`);
       continue;
     }
 
@@ -237,8 +232,8 @@ export const sendInvitations = async (account: LinkedInAccount): Promise<void> =
       await sleep(delay);
     } catch (err) {
       if (isAlreadyConnectedError(err)) {
-        await skipInviteForConnection(lead.id, providerId, account.id, claimed.messageId);
-        console.log(`[sendInvitations] LinkedIn says ${lead.linkedinUrl} is already a connection — messaging instead`);
+        await markAlreadyConnected(lead.id, claimed.messageId);
+        console.log(`[sendInvitations] LinkedIn says ${lead.linkedinUrl} is already a connection — not invited, not messaged`);
         continue;
       }
       if (isAccountLimitError(err)) {

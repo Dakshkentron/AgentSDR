@@ -74,7 +74,9 @@ export const LEAD_STATUS: Record<string, { label: string; color: BadgeColor }> =
   COMPLETED: { label: "Completed", color: "purple" },
   REPLIED: { label: "Replied", color: "green" },
   FAILED: { label: "Failed", color: "red" },
-  CANCELLED: { label: "Cancelled", color: "orange" },
+  // Only sendInvitations sets CANCELLED on a lead: the person is already a 1st-degree
+  // connection of the sender, so nothing (invitation or message) is sent.
+  CANCELLED: { label: "Already connected", color: "teal" },
 };
 
 export const CAMPAIGN_STATUS: Record<"ACTIVE" | "PAUSED", { label: string; color: BadgeColor }> = {
