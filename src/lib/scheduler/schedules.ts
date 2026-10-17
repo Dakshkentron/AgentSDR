@@ -15,7 +15,7 @@
  */
 import { dailyAt, everyMinutes, type Schedule } from "./slots";
 
-export type PlatformJobName = "linkedin-run-outreach" | "linkedin-run-search-queue" | "linkedin-replay-webhooks" | "linkedin-sync-messages" | "history-prune";
+export type PlatformJobName = "linkedin-run-outreach" | "linkedin-trigger-campaigns" | "linkedin-run-search-queue" | "linkedin-replay-webhooks" | "linkedin-sync-messages" | "history-prune";
 
 export type PlatformJob = {
   name: PlatformJobName;
@@ -37,6 +37,12 @@ export const PLATFORM_JOBS: readonly PlatformJob[] = [
     enabled: true,
     endpoint: "/api/linkedin/jobs/run-outreach",
     description: "LinkedIn invitations and follow-ups (each account's limits and working hours apply)",
+  },
+  {
+    name: "linkedin-trigger-campaigns",
+    schedule: everyMinutes(1),
+    enabled: true,
+    description: "Start LinkedIn campaigns at their trigger time (claims each once, then runs that organization's outreach)",
   },
   {
     // Not scheduled yet: today the search queue runs when someone clicks Run.

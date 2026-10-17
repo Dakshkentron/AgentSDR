@@ -686,7 +686,9 @@ CREATE TABLE public."Campaign" (
     "excludeBlacklisted" boolean DEFAULT true NOT NULL,
     "excludeBlacklistedCompanies" boolean DEFAULT true NOT NULL,
     "excludeContactedBySameSender" boolean DEFAULT false NOT NULL,
-    "excludeContactedOtherCampaigns" boolean DEFAULT false NOT NULL
+    "excludeContactedOtherCampaigns" boolean DEFAULT false NOT NULL,
+    "triggerAt" timestamp(3) without time zone DEFAULT (CURRENT_TIMESTAMP + '00:30:00'::interval) NOT NULL,
+    "triggeredAt" timestamp(3) without time zone
 );
 
 --

@@ -122,6 +122,7 @@ const completeExhaustedLeads = async (account: LinkedInAccount, stage: FollowUpS
         eq(leadsTable.linkedinAccountId, account.id),
         eq(leadsTable.status, stage.fromStatus),
         eq(campaigns.status, "ACTIVE"),
+        isNotNull(campaigns.triggeredAt),
         or(isNull(sql`coalesce(${campaignMsgCol}, ${msgCol})`), eq(sql`coalesce(${campaignMsgCol}, ${msgCol})`, ""))
       )
     );
@@ -178,6 +179,7 @@ const runFollowUpStage = async (account: LinkedInAccount, stage: FollowUpStage):
           eq(leadsTable.linkedinAccountId, account.id),
           eq(leadsTable.status, stage.fromStatus),
           eq(campaigns.status, "ACTIVE"),
+          isNotNull(campaigns.triggeredAt),
           lte(cutoffCol, cutoff),
           isNotNull(messageExpr),
           ne(messageExpr, ""),

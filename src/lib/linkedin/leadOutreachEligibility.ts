@@ -21,6 +21,9 @@ const alreadyContactedPeopleByAccount = async (linkedinAccountId: string): Promi
  * The campaign half of the eligibility rule, shared by both helpers below:
  * the lead has no campaign at all, or its campaign is ACTIVE and either has no
  * account assignments (open to any sender) or explicitly includes this sender.
+ * A campaign is only eligible once triggered ("triggeredAt" set by the
+ * linkedin-trigger-campaigns job or Send now), so nothing goes out before its
+ * trigger time.
  */
 const campaignEligibility = (linkedinAccountId: string): SQL =>
   or(
@@ -33,6 +36,7 @@ const campaignEligibility = (linkedinAccountId: string): SQL =>
           and(
             eq(campaigns.id, leads.campaignId),
             eq(campaigns.status, "ACTIVE"),
+            isNotNull(campaigns.triggeredAt),
             notExists(
               db
                 .select({ one: campaignAccounts.campaignId })
@@ -50,6 +54,7 @@ const campaignEligibility = (linkedinAccountId: string): SQL =>
           and(
             eq(campaigns.id, leads.campaignId),
             eq(campaigns.status, "ACTIVE"),
+            isNotNull(campaigns.triggeredAt),
             exists(
               db
                 .select({ one: campaignAccounts.campaignId })

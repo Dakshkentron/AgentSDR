@@ -145,6 +145,10 @@ export const linkedInAccounts = pgTable("LinkedInAccount", {
   (t) => [index("LinkedInAccount_organization_idx").on(t.organizationId)],
 );
 
+/** A new (or newly launched) campaign first runs this long after. */
+export const CAMPAIGN_TRIGGER_DELAY_MS = 30 * 60 * 1000;
+export const campaignTriggerAt = (from = new Date()): Date => new Date(from.getTime() + CAMPAIGN_TRIGGER_DELAY_MS);
+
 export const campaigns = pgTable("Campaign", {
   organizationId: uuid("organizationId")
     .notNull()
@@ -168,6 +172,10 @@ export const campaigns = pgTable("Campaign", {
   updatedAt: timestamp("updatedAt", { precision: 3, mode: "date" })
     .notNull()
     .$onUpdate(() => new Date()),
+  /** When the campaign first runs (scripts/add-linkedin-campaign-trigger-time.ts). Reset to now + 30 min at launch. */
+  triggerAt: timestamp("triggerAt", { precision: 3, mode: "date" }).notNull().$defaultFn(campaignTriggerAt),
+  /** When it actually first ran; null = not yet, and the outreach cron leaves its leads alone. */
+  triggeredAt: timestamp("triggeredAt", { precision: 3, mode: "date" }),
 },
   (t) => [index("Campaign_organization_idx").on(t.organizationId)],
 );

@@ -1,5 +1,5 @@
 import { isPlatformConnected } from "@/lib/platform/credentials";
-import { and, asc, eq, exists, gte, ne, sql, count as sqlCount } from "drizzle-orm";
+import { and, asc, eq, exists, gte, isNotNull, ne, sql, count as sqlCount } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { companies, people } from "@/lib/leads/schema";
 import { personVariables } from "@/lib/leads/variables";
@@ -141,6 +141,7 @@ export const sendInvitations = async (account: LinkedInAccount): Promise<void> =
           exists(db.select({ id: campaigns.id }).from(campaigns).where(and(
             eq(campaigns.id, leads.campaignId),
             eq(campaigns.status, "ACTIVE"),
+            isNotNull(campaigns.triggeredAt),
           ))),
         ))
         .returning({ id: leads.id });

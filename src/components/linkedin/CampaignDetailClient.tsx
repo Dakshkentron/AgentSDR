@@ -29,6 +29,7 @@ import { PageHeader } from "@/components/page/PageHeader";
 import { PageTabs } from "@/components/page/PageTabs";
 import { StatRow } from "@/components/page/StatRow";
 import { cn } from "@/utils/cn";
+import { campaignTriggerLabel, formatPacific } from "@/lib/linkedin/campaignTrigger";
 
 export type { CampaignLead } from "@/components/linkedin/campaigns/CampaignLeadsTab";
 
@@ -49,11 +50,10 @@ type Campaign = {
   totalLeads: number;
   statusCounts: Record<string, number>;
   createdAt: string;
+  triggerAt: string;
+  triggeredAt: string | null;
 };
 
-function createdLabel(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
 
 type TabId = "overview" | "leads" | "sequence";
 
@@ -177,7 +177,12 @@ export function CampaignDetailClient({
             )}
           </>
         }
-        description={<span suppressHydrationWarning>{`Created ${createdLabel(campaign.createdAt)} · ${steps} of 5 sequence steps written${campaign.description ? ` · ${campaign.description}` : ""}`}</span>}
+        description={
+          <span className="flex flex-col">
+            <span>{`Created ${formatPacific(campaign.createdAt)} · ${steps} of 5 sequence steps written${campaign.description ? ` · ${campaign.description}` : ""}`}</span>
+            <span>{campaignTriggerLabel(campaign)}</span>
+          </span>
+        }
         actions={
           <>
             <span className="mr-1 hidden sm:inline-flex">
@@ -194,8 +199,9 @@ export function CampaignDetailClient({
               />
               {campaign.status === "ACTIVE" ? "Pause" : "Resume"}
             </Button.Root>
-            {campaign.status === "ACTIVE" && (
-              <Button.Root variant="primary" mode="filled" size="small" onClick={() => void sendNow()} disabled={sending} title="Send the next invitations now instead of waiting for the next scheduled run">
+            {/* Send now starts the campaign early; once it has triggered, the engine keeps it running. */}
+            {campaign.status === "ACTIVE" && !campaign.triggeredAt && (
+              <Button.Root variant="primary" mode="filled" size="small" onClick={() => void sendNow()} disabled={sending} title="Start the campaign now instead of at its trigger time">
                 <Button.Icon as={sending ? RiLoader4Line : RiSendPlaneLine} className={cn(sending && "animate-spin")} />
                 Send now
               </Button.Root>

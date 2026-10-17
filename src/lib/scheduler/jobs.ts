@@ -8,6 +8,7 @@ import { runOutreach } from "@/jobs/runOutreach";
 import { runSearchQueue } from "@/jobs/runSearchQueue";
 import { syncLinkedinMessagesForAllOrganizations } from "@/jobs/syncLinkedinMessages";
 import { startTrackedJob } from "@/lib/linkedin/jobTracker";
+import { triggerDueCampaigns } from "@/lib/linkedin/campaignTrigger.server";
 import { jobRuns } from "@/lib/linkedin/schema";
 import { pruneClaims } from "./claims";
 import type { PlatformJobName } from "./schedules";
@@ -32,6 +33,12 @@ export async function startPlatformJob(name: PlatformJobName): Promise<StartedJo
     case "linkedin-run-outreach": {
       const { runId, done } = await startTrackedJob("run-outreach", () => runOutreach({}));
       return { body: { ok: true, runId }, done };
+    }
+    case "linkedin-trigger-campaigns": {
+      // Not tracked as a JobRun: it ticks every minute and is a no-op almost
+      // always; the outreach it starts logs to the server console.
+      const { triggered } = await triggerDueCampaigns();
+      return { body: { ok: true, triggered }, done: finished };
     }
     case "linkedin-run-search-queue": {
       // runSearchQueue refuses to run beside an active run anyway; checking

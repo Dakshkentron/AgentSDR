@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { currentOrganizationId, inOrg } from "@/lib/tenancy/scope";
 import { campaignAccounts, campaigns, linkedInAccounts } from "@/lib/linkedin/schema";
 import { runOutreach } from "@/jobs/runOutreach";
+import { claimCampaignTrigger } from "@/lib/linkedin/campaignTrigger.server";
 import { withJobTracking } from "@/lib/linkedin/jobTracker";
 import { channelRules } from "@/lib/channels/rules.server";
 import { formatWorkingHoursSummary, isWithinWorkingHours, withOrganizationHours } from "@/lib/linkedin/workingHours";
@@ -33,6 +34,10 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
         return NextResponse.json({ ok: false, error: `Outside working hours (${hours}). It sends automatically at the next working time.` }, { status: 409 });
       }
 
+      // Starts the campaign now if it has not triggered yet (atomic; a lost
+      // race just means the trigger job got there first). Already triggered:
+      // this only runs the next batch early.
+      await claimCampaignTrigger(id, true);
       await db.update(linkedInAccounts).set({ nextAllowedRun: null }).where(and(inOrg(linkedInAccounts), inArray(linkedInAccounts.id, working.map((s) => s.id))));
       const runId = await withJobTracking("run-outreach", () => runOutreach({ organizationId: currentOrganizationId() }));
       return NextResponse.json({ ok: true, runId });

@@ -6,6 +6,7 @@ import { inOrg } from "@/lib/tenancy/scope";
 import {
   campaignAccounts,
   campaigns,
+  campaignTriggerAt,
   connections,
   leads,
   linkedInAccounts,
@@ -138,6 +139,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         totalLeads: campaignLeads.length,
         statusCounts,
         createdAt: campaign.createdAt.toISOString(),
+        triggerAt: campaign.triggerAt.toISOString(),
+        triggeredAt: campaign.triggeredAt?.toISOString() ?? null,
         updatedAt: campaign.updatedAt.toISOString(),
       },
       leads: campaignLeads.map((l) => ({
@@ -189,10 +192,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
 
       // Update scalar fields
-      const scalarUpdate: Partial<Record<(typeof EXCLUDE_OPTION_KEYS)[number], boolean>> & { name?: string; description?: string | null; status?: CampaignStatus; invitationMessage?: string | null; acceptanceMessage?: string | null; followUp1Message?: string | null; followUp2Message?: string | null; followUp3Message?: string | null } = {
+      const scalarUpdate: Partial<Record<(typeof EXCLUDE_OPTION_KEYS)[number], boolean>> & { name?: string; description?: string | null; status?: CampaignStatus; triggerAt?: Date; invitationMessage?: string | null; acceptanceMessage?: string | null; followUp1Message?: string | null; followUp2Message?: string | null; followUp3Message?: string | null } = {
         ...(name !== undefined && { name: name.trim() }),
         ...(description !== undefined && { description: description?.trim() || null }),
         ...(status !== undefined && { status: status as CampaignStatus }),
+        // Launch (or resume before it ever ran) restarts the 30-minute
+        // countdown from now; once triggered, resuming changes nothing.
+        ...(status === "ACTIVE" && existingCampaign.status !== "ACTIVE" && !existingCampaign.triggeredAt && { triggerAt: campaignTriggerAt() }),
         ...(invitationMessage !== undefined && { invitationMessage: invitationMessage?.trim() || null }),
         ...(acceptanceMessage !== undefined && { acceptanceMessage: acceptanceMessage?.trim() || null }),
         ...(followUp1Message !== undefined && { followUp1Message: followUp1Message?.trim() || null }),
