@@ -68,7 +68,6 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
 
   async function startSearch() {
     if (!campaignId || !searchUrlInput.trim()) return;
-    if (accountIds.length === 0) { setError("Pick a sender in Campaign details before fetching a search"); return; }
     setSearchBusy(true);
     setError(null);
     try {
