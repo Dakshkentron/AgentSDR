@@ -152,11 +152,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   });
 }
 
+const EXCLUDE_OPTION_KEYS = ["excludeBlacklisted", "excludeBlacklistedCompanies", "excludeContactedBySameSender", "excludeContactedOtherCampaigns"] as const;
+
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   return withLinkedinOrg(req, async () => {
     const { id } = await params;
     try {
-      const { name, description, linkedinAccountIds, status, invitationMessage, acceptanceMessage, followUp1Message, followUp2Message, followUp3Message } = await req.json();
+      const body = await req.json();
+      const { name, description, linkedinAccountIds, status, invitationMessage, acceptanceMessage, followUp1Message, followUp2Message, followUp3Message } = body;
 
       const [existingCampaign] = await db.select().from(campaigns).where(and(inOrg(campaigns), eq(campaigns.id, id))).limit(1);
       if (!existingCampaign) {
@@ -186,7 +189,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
 
       // Update scalar fields
-      const scalarUpdate: { name?: string; description?: string | null; status?: CampaignStatus; invitationMessage?: string | null; acceptanceMessage?: string | null; followUp1Message?: string | null; followUp2Message?: string | null; followUp3Message?: string | null } = {
+      const scalarUpdate: Partial<Record<(typeof EXCLUDE_OPTION_KEYS)[number], boolean>> & { name?: string; description?: string | null; status?: CampaignStatus; invitationMessage?: string | null; acceptanceMessage?: string | null; followUp1Message?: string | null; followUp2Message?: string | null; followUp3Message?: string | null } = {
         ...(name !== undefined && { name: name.trim() }),
         ...(description !== undefined && { description: description?.trim() || null }),
         ...(status !== undefined && { status: status as CampaignStatus }),
@@ -195,6 +198,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         ...(followUp1Message !== undefined && { followUp1Message: followUp1Message?.trim() || null }),
         ...(followUp2Message !== undefined && { followUp2Message: followUp2Message?.trim() || null }),
         ...(followUp3Message !== undefined && { followUp3Message: followUp3Message?.trim() || null }),
+        ...Object.fromEntries(EXCLUDE_OPTION_KEYS.filter((key) => typeof body[key] === "boolean").map((key) => [key, body[key] as boolean])),
       };
       // Prisma issued the UPDATE even with an empty `data` (it still bumps
       // @updatedAt); Drizzle rejects an empty `set`, so only skip when there is

@@ -12,6 +12,8 @@ import {
   PLATFORM_INTEGRATIONS,
   PLATFORM_SETTINGS_LABEL,
   getPlatformIntegration,
+  isUnipileCompatible,
+  UNIPILE_COMPATIBLE_KEYS,
   type PlatformCredentials,
   type PlatformKey,
   type PlatformStatus,
@@ -78,21 +80,21 @@ function rowKey(key: PlatformKey): string {
 }
 
 /**
- * Leopile is a drop-in for Unipile (same API), so everything that asks for
- * "unipile" is served Leopile's credentials when only Leopile is connected.
- * An organization connects one or the other, never both.
+ * Unipile-compatible providers (catalog `unipileCompatible`, e.g. Leopile)
+ * speak the same API, so everything that asks for "unipile" is served
+ * whichever of them is connected. An organization connects at most one.
  */
 async function load(key: PlatformKey): Promise<Record<string, string> | null> {
-  const own = await loadRow(key);
-  return own ?? (key === "unipile" ? loadRow("leopile") : null);
+  if (key !== "unipile") return loadRow(key);
+  const source = await unipileSource();
+  return source ? loadRow(source) : null;
 }
 
-/** Which of the two Unipile-compatible rows backs "unipile" right now. */
-async function unipileSource(): Promise<"unipile" | "leopile"> {
-  return (await loadRow("unipile")) ? "unipile" : "leopile";
+/** Which Unipile-compatible row backs "unipile" right now, if any. */
+async function unipileSource(): Promise<PlatformKey | null> {
+  for (const key of UNIPILE_COMPATIBLE_KEYS) if (await loadRow(key)) return key;
+  return null;
 }
-
-const OTHER_UNIPILE: Partial<Record<PlatformKey, PlatformKey>> = { unipile: "leopile", leopile: "unipile" };
 
 async function loadRow(key: PlatformKey): Promise<Record<string, string> | null> {
   const hit = cache.get(cacheKey(key));
@@ -166,9 +168,9 @@ export async function savePlatformIntegration(key: PlatformKey, input: Record<st
     throw new Error("Field values must be text");
   }
 
-  const other = OTHER_UNIPILE[key];
-  if (other && (await loadRow(other))) {
-    throw new Error(`Disconnect ${getPlatformIntegration(other)?.name} first — connect Unipile or Leopile, not both`);
+  const other = isUnipileCompatible(key) ? await unipileSource() : null;
+  if (other && other !== key) {
+    throw new Error(`Disconnect ${getPlatformIntegration(other)?.name} first — connect one LinkedIn provider at a time`);
   }
 
   cache.delete(cacheKey(key));
@@ -182,7 +184,7 @@ export async function savePlatformIntegration(key: PlatformKey, input: Record<st
   const missing = integration.fields.find((field) => field.required && !merged[field.key]);
   if (missing) throw new Error(`${missing.label} is required`);
   // Unipile's webhook secret is ours to make: nobody should have to invent one.
-  if ((key === "unipile" || key === "leopile") && !merged.notifySecret) merged.notifySecret = randomBytes(32).toString("base64url");
+  if (isUnipileCompatible(key) && !merged.notifySecret) merged.notifySecret = randomBytes(32).toString("base64url");
 
   const credentials = normalize(key, merged);
   await verifyPlatformCredentials(key, credentials);
@@ -218,7 +220,7 @@ export async function savePlatformIntegration(key: PlatformKey, input: Record<st
 
   cache.delete(cacheKey(key));
   const webhooks =
-    key === "unipile" || key === "leopile"
+    isUnipileCompatible(key)
       ? await storeWebhookRegistration(
           key,
           await registerUnipileWebhooks(currentOrganizationId(), credentials as PlatformCredentials["unipile"]),
@@ -236,7 +238,7 @@ export async function savePlatformIntegration(key: PlatformKey, input: Record<st
 
 /** Record a Unipile webhook registration on the integration's row, for Settings to show. */
 async function storeWebhookRegistration(
-  key: "unipile" | "leopile",
+  key: PlatformKey,
   registration: UnipileWebhookRegistration,
 ): Promise<UnipileWebhookRegistration> {
   const [row] = await db
@@ -256,7 +258,7 @@ async function storeWebhookRegistration(
 /** Register Unipile's webhooks again (Settings → LinkedIn → Connection → Register again). */
 export async function reregisterUnipileWebhooks(): Promise<UnipileWebhookRegistration> {
   const credentials = await requirePlatformCredentials("unipile");
-  return storeWebhookRegistration(await unipileSource(), await registerUnipileWebhooks(currentOrganizationId(), credentials));
+  return storeWebhookRegistration((await unipileSource()) ?? "unipile", await registerUnipileWebhooks(currentOrganizationId(), credentials));
 }
 
 /**
@@ -272,7 +274,7 @@ export async function revealUnipileWebhookSetup(): Promise<{ endpoints: UnipileW
 
 /** Deletes the row and its credentials (cascade). Features depending on it stop at once in this process. */
 export async function disconnectPlatformIntegration(key: PlatformKey): Promise<void> {
-  if (key === "unipile" || key === "leopile") {
+  if (isUnipileCompatible(key)) {
     const raw = await loadRow(key);
     const credentials = raw ? normalize("unipile", raw) : null;
     if (credentials) await unregisterUnipileWebhooks(currentOrganizationId(), credentials);
@@ -298,7 +300,7 @@ export async function listOrganizationsWithPlatform(key: PlatformKey): Promise<s
 
 function normalize<K extends PlatformKey>(key: K, raw: Record<string, string>): PlatformCredentials[K] {
   const text = (name: string) => (raw[name] ?? "").trim();
-  if (key === "unipile" || key === "leopile") {
+  if (isUnipileCompatible(key)) {
     // The dashboard shows the DSN without a scheme; accept it as shown.
     const dsn = text("baseUrl").replace(/\/+$/, "");
     const baseUrl = dsn && !/^[a-z]+:\/\//i.test(dsn) ? `https://${dsn}` : dsn;

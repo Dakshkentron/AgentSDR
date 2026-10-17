@@ -167,7 +167,7 @@ function PlatformCard({
           </dl>
         )}
 
-        {connected && (integration.key === "unipile" || integration.key === "leopile") && <UnipileWebhooks registration={status?.webhooks ?? null} />}
+        {connected && integration.unipileCompatible && <UnipileWebhooks registration={status?.webhooks ?? null} />}
       </FramePanel>
     </Frame>
   );

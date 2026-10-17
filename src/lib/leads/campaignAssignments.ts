@@ -4,6 +4,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { outreachCampaigns, outreachLeads, suppressionList } from "@/lib/outreach/schema";
 import { campaigns as linkedinCampaigns, leads as linkedinLeads } from "@/lib/linkedin/schema";
 import { isInvitationMessageTooLong } from "@/lib/linkedin/invitationMessage";
+import { excludedByCampaign } from "@/lib/linkedin/leadOutreachEligibility";
+import { people } from "./schema";
 import { getPeopleByIds, withLeadTransaction } from "./records";
 import { currentOrganizationId, inOrg } from "@/lib/tenancy/scope";
 
@@ -97,6 +99,8 @@ export async function addPeopleToLinkedinCampaign(
     const existingRows = await tx.select({ personId: linkedinLeads.personId }).from(linkedinLeads).where(and(eq(linkedinLeads.campaignId, campaignId), inArray(linkedinLeads.personId, uniqueIds)));
     const existing = new Set(existingRows.map((row) => row.personId));
     const result: AssignmentResult = { requested: uniqueIds.length, added: 0, skippedMissingIdentity: 0, skippedDuplicate: 0, skippedSuppressed: 0 };
+    const excluded = new Set((await tx.select({ id: people.id }).from(people)
+      .where(and(inOrg(people), inArray(people.id, uniqueIds), excludedByCampaign(people.id, campaignId)))).map((row) => row.id));
 
     for (const { person } of rows) {
       if (!person.linkedinUrl) {
@@ -105,6 +109,10 @@ export async function addPeopleToLinkedinCampaign(
       }
       if (existing.has(person.id)) {
         result.skippedDuplicate += 1;
+        continue;
+      }
+      if (excluded.has(person.id)) {
+        result.skippedSuppressed += 1;
         continue;
       }
       await tx.insert(linkedinLeads).values({

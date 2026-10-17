@@ -2,7 +2,7 @@ import "server-only";
 
 import { HeadBucketCommand, S3Client } from "@aws-sdk/client-s3";
 import { google } from "googleapis";
-import type { PlatformCredentials, PlatformKey } from "./catalog";
+import { isUnipileCompatible, type PlatformCredentials, type PlatformKey } from "./catalog";
 import { googleServiceAccount, r2Client } from "./clients";
 
 /**
@@ -14,7 +14,7 @@ export async function verifyPlatformCredentials<K extends PlatformKey>(
   key: K,
   credentials: PlatformCredentials[K],
 ): Promise<void> {
-  if (key === "unipile" || key === "leopile") return verifyUnipile(credentials as PlatformCredentials["unipile"]);
+  if (isUnipileCompatible(key)) return verifyUnipile(credentials as PlatformCredentials["unipile"]);
   if (key === "google") return verifyGoogle(credentials as PlatformCredentials["google"]);
   if (key === "r2") return verifyR2(credentials as PlatformCredentials["r2"]);
   throw new Error("Unknown integration");

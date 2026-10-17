@@ -9,7 +9,7 @@ import { importLeadRows, mapSpreadsheetRowsWithMapping, suggestedLinkedinMapping
 import { buildImportLeadsJsonResponse } from "@/lib/linkedin/importLeadsResponse";
 import { serializeError } from "@/lib/linkedin/serializeError";
 
-type LiveRow = { linkedinUrl: string; sourceLinkedinApi?: string | null; name?: string | null; headline?: string | null; location?: string | null };
+type LiveRow = { linkedinUrl: string; sourceLinkedinApi?: string | null; name?: string | null; headline?: string | null; company?: string | null; location?: string | null };
 
 /**
  * POST /api/linkedin/campaigns/:id/from-lookup — adds leads AgentSDR hasn't
@@ -70,6 +70,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             "LinkedIn API": r.sourceLinkedinApi ?? "",
             Name: r.name ?? "",
             Headline: r.headline ?? "",
+            Company: r.company ?? "",
             Location: r.location ?? "",
           }));
       }

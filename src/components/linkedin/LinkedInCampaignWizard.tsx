@@ -23,6 +23,14 @@ import { cn } from "@/utils/cn";
 type Account = { id: string; username: string; name: string | null; profilePictureUrl: string | null };
 type SearchLead = Pick<SearchBatchLeadRow, "id" | "linkedinUrl" | "sourceLinkedinApi" | "name" | "headline" | "location">;
 
+const EXCLUDE_OPTIONS = [
+  { key: "excludeBlacklisted", label: "Exclude leads on your blacklist", hint: "People marked Do Not Contact." },
+  { key: "excludeBlacklistedCompanies", label: "Exclude leads from blacklisted companies", hint: "Anyone at a company with a Do Not Contact person." },
+  { key: "excludeContactedBySameSender", label: "Exclude leads contacted by the same sender from other campaigns", hint: "Already reached by one of this campaign's senders." },
+  { key: "excludeContactedOtherCampaigns", label: "Exclude leads contacted from other campaigns", hint: "Already reached by any sender." },
+] as const;
+type ExcludeKey = (typeof EXCLUDE_OPTIONS)[number]["key"];
+
 const STEPS = [
   { id: "setup", label: "Campaign details", hint: "Name and senders", icon: RiDraftLine },
   { id: "leads", label: "Add leads", hint: "People or spreadsheet", icon: RiTeamLine },
@@ -70,6 +78,27 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
   const [searchLeads, setSearchLeads] = useState<SearchLead[]>([]);
   const [removedLeadIds, setRemovedLeadIds] = useState<Set<string>>(new Set());
   const [addedLeadIds, setAddedLeadIds] = useState<Set<string>>(new Set());
+  const [exclude, setExclude] = useState<Record<ExcludeKey, boolean>>({
+    excludeBlacklisted: true,
+    excludeBlacklistedCompanies: true,
+    excludeContactedBySameSender: false,
+    excludeContactedOtherCampaigns: false,
+  });
+
+  async function toggleExclude(key: ExcludeKey) {
+    if (!campaignId) return;
+    const value = !exclude[key];
+    setExclude((current) => ({ ...current, [key]: value }));
+    const response = await fetch(`/api/linkedin/campaigns/${campaignId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [key]: value }),
+    }).catch(() => null);
+    if (!response?.ok) {
+      setExclude((current) => ({ ...current, [key]: !value }));
+      setError("Could not save the exclude option");
+    }
+  }
 
   async function startSearch() {
     if (!campaignId || !searchUrlInput.trim()) return;
@@ -357,6 +386,20 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
             {step === 1 && campaignId && (
               <div className="mx-auto max-w-3xl">
                 <StepHeading title="Add leads" description="Add the people a LinkedIn search found, import a spreadsheet, or select people already in your database." />
+                <fieldset className="mt-6">
+                  <legend className="mb-2 block text-label-sm text-text-strong-950">Exclude options</legend>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {EXCLUDE_OPTIONS.map((option) => (
+                      <label key={option.key} className={cn("flex cursor-pointer items-start gap-3 rounded-xl p-3 ring-1 ring-inset transition", exclude[option.key] ? "bg-bg-weak-50 ring-primary-base" : "ring-stroke-soft-200 hover:bg-bg-weak-50")}>
+                        <Checkbox.Root className="mt-0.5" checked={exclude[option.key]} onCheckedChange={() => void toggleExclude(option.key)} />
+                        <span className="min-w-0">
+                          <span className="block text-label-sm text-text-strong-950">{option.label}</span>
+                          <span className="mt-0.5 block text-paragraph-xs text-text-sub-600">{option.hint}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
                 <div className="mt-6 grid gap-4 sm:grid-cols-3">
                   <button type="button" onClick={() => setShowSearch(true)} className="flex min-h-44 flex-col items-center justify-center rounded-2xl bg-bg-white-0 p-6 text-center shadow-regular-xs outline-none ring-1 ring-inset ring-stroke-soft-200 transition hover:bg-bg-weak-50 focus-visible:ring-2 focus-visible:ring-primary-base">
                     <span className="flex size-10 items-center justify-center rounded-xl bg-bg-weak-50 ring-1 ring-inset ring-stroke-soft-200"><Search className="size-5 text-text-sub-600" /></span>
@@ -477,7 +520,7 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
                     onClose={() => setShowPeople(false)}
                     onAdded={(result) => {
                       setLeadCount((current) => current + result.added);
-                      setImportSummary(`${result.added} added from People${result.skippedDuplicate ? ` · ${result.skippedDuplicate} already enrolled` : ""}`);
+                      setImportSummary(`${result.added} added from People${result.skippedDuplicate ? ` · ${result.skippedDuplicate} already enrolled` : ""}${result.skippedSuppressed ? ` · ${result.skippedSuppressed} excluded` : ""}`);
                     }}
                   />
                 )}

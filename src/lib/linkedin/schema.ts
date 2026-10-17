@@ -159,6 +159,11 @@ export const campaigns = pgTable("Campaign", {
   followUp1Message: text("followUp1Message"),
   followUp2Message: text("followUp2Message"),
   followUp3Message: text("followUp3Message"),
+  /** Exclude options (scripts/add-linkedin-campaign-exclude-options.ts). */
+  excludeBlacklisted: boolean("excludeBlacklisted").notNull().default(true),
+  excludeBlacklistedCompanies: boolean("excludeBlacklistedCompanies").notNull().default(true),
+  excludeContactedBySameSender: boolean("excludeContactedBySameSender").notNull().default(false),
+  excludeContactedOtherCampaigns: boolean("excludeContactedOtherCampaigns").notNull().default(false),
   createdAt: timestamp("createdAt", { precision: 3, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { precision: 3, mode: "date" })
     .notNull()
@@ -288,6 +293,10 @@ export const messages = pgTable("Message", {
     .where(sql`${t.leadId} is not null and ${t.duplicateOfMessageId} is null and ${t.type} in ('INVITATION', 'ACCEPTANCE', 'FOLLOW_UP_1', 'FOLLOW_UP_2', 'FOLLOW_UP_3')`),
   index("Message_leadId_idx").on(t.leadId),
   index("Message_duplicateOfMessageId_idx").on(t.duplicateOfMessageId),
+  // scripts/add-message-connection-index.ts — newest message per conversation.
+  index("Message_connection_latest_idx")
+    .on(t.connectionId, t.createdAt.desc(), t.id.desc())
+    .where(sql`${t.duplicateOfMessageId} is null`),
 ]);
 
 export const jobRuns = pgTable("JobRun", {

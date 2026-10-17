@@ -14,12 +14,16 @@ type PersonRow = {
 
 type LiveResult = {
   linkedinUrl: string;
+  sourceLinkedinApi: string | null;
   name: string | null;
   headline: string | null;
+  company: string | null;
   location: string | null;
   profilePictureUrl: string | null;
   networkDistance: string | null;
 };
+
+type LiveCompany = { id: string; name: string; industry: string | null; location: string | null; peopleSearchUrl: string };
 
 function networkBadge(d: string | null): string | null {
   if (!d) return null;
@@ -51,12 +55,14 @@ export default function AddPeopleToCampaignModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // LinkedIn-only: fetch someone AgentSDR hasn't seen before — the same box takes
-  // either a pasted profile URL (resolved and added directly) or a name/keywords
-  // (a live LinkedIn search), instead of only picking from the People database.
+  // LinkedIn-only: find people AgentSDR hasn't seen before — the same box takes a
+  // pasted profile or search URL, or a name/keywords (people or companies). Every
+  // path lands in a preview list; nothing is added until "Add N leads".
   const [liveBusy, setLiveBusy] = useState(false);
+  const [liveKind, setLiveKind] = useState<"people" | "companies">("people");
   const [liveResults, setLiveResults] = useState<LiveResult[] | null>(null);
-  const [liveSelected, setLiveSelected] = useState<Set<string>>(new Set());
+  const [liveCompanies, setLiveCompanies] = useState<LiveCompany[] | null>(null);
+  const [liveCompanyName, setLiveCompanyName] = useState<string | null>(null);
   const [liveError, setLiveError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -115,40 +121,20 @@ export default function AddPeopleToCampaignModal({
     }
   }
 
-  async function fetchByUrl(url: string) {
-    setLiveBusy(true);
-    setLiveError(null);
-    try {
-      const response = await fetch(`/api/linkedin/campaigns/${campaignId}/from-lookup`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
-      const body = await response.json();
-      if (!response.ok || !body.ok) throw new Error(body.error ?? "Could not fetch that profile");
-      const added = Number(body.created ?? 0) + Number(body.attached ?? 0);
-      onAdded({ requested: 1, added, skippedMissingIdentity: 0, skippedDuplicate: Number(body.skipped ?? 0), skippedSuppressed: 0 });
-      onClose();
-    } catch (cause) {
-      setLiveError(cause instanceof Error ? cause.message : "Could not fetch that profile");
-    } finally {
-      setLiveBusy(false);
-    }
-  }
-
-  async function searchLive(keywords: string) {
+  async function searchLive(keywords: string, kind: "people" | "companies", companyName: string | null = null) {
     setLiveBusy(true);
     setLiveError(null);
     try {
       const response = await fetch("/api/linkedin/search/live", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: keywords }),
+        body: JSON.stringify({ query: keywords, kind }),
       });
       const body = await response.json();
       if (!response.ok || !body.ok) throw new Error(body.error ?? "LinkedIn search failed");
-      setLiveResults(body.results ?? []);
-      setLiveSelected(new Set());
+      setLiveCompanies(kind === "companies" ? body.companies ?? [] : null);
+      setLiveResults(kind === "companies" ? null : body.results ?? []);
+      setLiveCompanyName(companyName);
     } catch (cause) {
       setLiveError(cause instanceof Error ? cause.message : "LinkedIn search failed");
     } finally {
@@ -159,11 +145,11 @@ export default function AddPeopleToCampaignModal({
   function runLinkedinLookup() {
     const value = query.trim();
     if (!value) return;
-    void (isProfileUrl(value) ? fetchByUrl(value) : searchLive(value));
+    void searchLive(value, isProfileUrl(value) ? "people" : liveKind);
   }
 
   async function addLiveSelected() {
-    const rows = (liveResults ?? []).filter((r) => liveSelected.has(r.linkedinUrl));
+    const rows = liveResults ?? [];
     if (rows.length === 0) return;
     setSaving(true);
     setLiveError(null);
@@ -211,43 +197,76 @@ export default function AddPeopleToCampaignModal({
                   autoFocus
                   placeholder={channel === "linkedin" ? "Name, company — or paste linkedin.com/in/… URL" : "Search name, email, company, domain, or LinkedIn…"}
                   value={query}
-                  onChange={(event) => { setQuery(event.target.value); setLiveResults(null); setLiveError(null); }}
+                  onChange={(event) => { setQuery(event.target.value); setLiveResults(null); setLiveCompanies(null); setLiveError(null); }}
                   onKeyDown={(event) => { if (event.key === "Enter" && channel === "linkedin") runLinkedinLookup(); }}
                 />
               </Input.Wrapper>
             </Input.Root>
+            {channel === "linkedin" && !pastedUrl && (
+              <select
+                className="shrink-0 rounded-10 bg-bg-white-0 px-2 text-paragraph-sm text-text-strong-950 ring-1 ring-inset ring-stroke-soft-200"
+                aria-label="Search LinkedIn for"
+                value={liveKind}
+                onChange={(event) => setLiveKind(event.target.value as "people" | "companies")}
+              >
+                <option value="people">People</option>
+                <option value="companies">Companies</option>
+              </select>
+            )}
             {channel === "linkedin" && (
               <Button.Root variant="primary" mode="filled" size="medium" className="shrink-0" disabled={!query.trim() || liveBusy} onClick={runLinkedinLookup}>
                 {liveBusy && <Button.Icon as={RiLoader4Line} className="animate-spin" />}
-                {liveBusy ? "Working…" : pastedUrl ? "Fetch & add" : "Search LinkedIn"}
+                {liveBusy ? "Working…" : pastedUrl ? "Fetch" : "Search LinkedIn"}
               </Button.Root>
             )}
           </div>
           {liveError && <p className="mt-2 text-paragraph-sm text-error-base">{liveError}</p>}
         </div>
+        {liveCompanies && (
+          <div className="border-b border-stroke-soft-200 bg-bg-weak-50 p-3">
+            <p className="px-2 pb-1 text-label-xs text-text-sub-600">
+              {liveCompanies.length === 0 ? "No companies on LinkedIn for that search." : `${liveCompanies.length} companies — pick one to see its people`}
+            </p>
+            <div className="max-h-56 overflow-y-auto">
+              {liveCompanies.map((c) => (
+                <button key={c.id} type="button" disabled={liveBusy} onClick={() => void searchLive(c.peopleSearchUrl, "people", c.name)} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-bg-white-0">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-label-sm text-text-strong-950">{c.name}</span>
+                    <span className="block truncate text-paragraph-xs text-text-sub-600">{[c.industry, c.location].filter(Boolean).join(" · ")}</span>
+                  </span>
+                  <span className="shrink-0 text-label-xs text-primary-base">People →</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {liveResults && (
           <div className="border-b border-stroke-soft-200 bg-bg-weak-50 p-3">
             <p className="px-2 pb-1 text-label-xs text-text-sub-600">
-              {liveResults.length === 0 ? "No results on LinkedIn for that search." : `${liveResults.length} found on LinkedIn — pick who to add`}
+              {liveResults.length === 0
+                ? "Nobody found on LinkedIn."
+                : `${liveResults.length} found on LinkedIn${liveCompanyName ? ` at ${liveCompanyName}` : ""} — remove anyone you don't want, then add`}
             </p>
             <div className="max-h-56 overflow-y-auto">
               {liveResults.map((r) => (
-                <label key={r.linkedinUrl} className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-bg-white-0">
-                  <Checkbox.Root checked={liveSelected.has(r.linkedinUrl)} onCheckedChange={() => setLiveSelected((current) => toggle(current, r.linkedinUrl))} />
+                <div key={r.linkedinUrl} className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-bg-white-0">
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-label-sm text-text-strong-950">{r.name || r.linkedinUrl}</span>
-                    <span className="block truncate text-paragraph-xs text-text-sub-600">{r.headline}{r.location ? ` · ${r.location}` : ""}</span>
+                    <span className="block truncate text-paragraph-xs text-text-sub-600">{[r.headline, r.company, r.location].filter(Boolean).join(" · ")}</span>
                   </span>
                   {networkBadge(r.networkDistance) && (
                     <span className="shrink-0 rounded-full bg-success-lighter px-2 py-0.5 text-label-xs text-success-base">{networkBadge(r.networkDistance)}</span>
                   )}
-                </label>
+                  <Button.Root variant="neutral" mode="ghost" size="xxsmall" onClick={() => setLiveResults((current) => (current ?? []).filter((x) => x.linkedinUrl !== r.linkedinUrl))}>
+                    Remove
+                  </Button.Root>
+                </div>
               ))}
             </div>
             {liveResults.length > 0 && (
               <div className="flex justify-end pt-2">
-                <Button.Root variant="primary" mode="filled" size="small" disabled={!liveSelected.size || saving} onClick={() => void addLiveSelected()}>
-                  {saving ? "Adding…" : `Add ${liveSelected.size || ""} selected`}
+                <Button.Root variant="primary" mode="filled" size="small" disabled={saving} onClick={() => void addLiveSelected()}>
+                  {saving ? "Adding…" : `Add ${liveResults.length} ${liveResults.length === 1 ? "lead" : "leads"}`}
                 </Button.Root>
               </div>
             )}
@@ -255,7 +274,7 @@ export default function AddPeopleToCampaignModal({
         )}
         <div className="min-h-48 flex-1 overflow-y-auto p-3">
           {pastedUrl ? (
-            <p className="p-4 text-paragraph-sm text-text-sub-600">Press <span className="text-label-sm text-text-strong-950">Fetch &amp; add</span> to look this profile up on LinkedIn and add it to the campaign.</p>
+            <p className="p-4 text-paragraph-sm text-text-sub-600">Press <span className="text-label-sm text-text-strong-950">Fetch</span> to look up the people at this LinkedIn URL. You can review them before anything is added.</p>
           ) : loading ? (
             <p className="p-4 text-paragraph-sm text-text-sub-600">Loading…</p>
           ) : eligible.length === 0 ? (

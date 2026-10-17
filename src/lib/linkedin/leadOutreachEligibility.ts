@@ -1,7 +1,7 @@
-import { and, eq, exists, isNotNull, isNull, lt, lte, ne, notExists, notInArray, or, type SQL } from "drizzle-orm";
+import { and, eq, exists, isNotNull, isNull, lt, lte, ne, notExists, notInArray, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { campaignAccounts, campaigns, leads } from "@/lib/linkedin/schema";
-import { inOrg } from "@/lib/tenancy/scope";
+import { currentOrganizationId, inOrg } from "@/lib/tenancy/scope";
 import { MAX_LEAD_RETRIES } from "./inviteRetry";
 
 /**
@@ -66,6 +66,30 @@ const campaignEligibility = (linkedinAccountId: string): SQL =>
     )
   )!;
 
+
+/**
+ * True when the campaign's Exclude options bar this person. "Blacklist" is
+ * the Person-global Do Not Contact policy (crm_person_contact_policies); a
+ * "blacklisted company" is any company with at least one DNC person — there
+ * is no company-level blacklist. "Contacted" means a Lead in another campaign
+ * past PENDING; "same sender" narrows that to this campaign's senders.
+ */
+export const excludedByCampaign = (personId: AnyColumn | SQL, campaignId: AnyColumn | SQL | string): SQL => sql`exists (
+  select 1 from "Campaign" xc where xc.id = ${campaignId} and xc."organizationId" = ${currentOrganizationId()} and (
+    (xc."excludeBlacklisted" and exists (
+      select 1 from crm_person_contact_policies xp where xp.person_id = ${personId} and xp.do_not_contact))
+    or (xc."excludeBlacklistedCompanies" and exists (
+      select 1 from people xa
+      join people xb on xb.company_id = xa.company_id and xb.organization_id = xa.organization_id
+      join crm_person_contact_policies xp on xp.person_id = xb.id and xp.do_not_contact
+      where xa.id = ${personId}))
+    or ((xc."excludeContactedOtherCampaigns" or xc."excludeContactedBySameSender") and exists (
+      select 1 from "Lead" xl where xl."organizationId" = xc."organizationId" and xl."personId" = ${personId}
+        and xl."campaignId" is distinct from xc.id and xl.status <> 'PENDING'
+        and (xc."excludeContactedOtherCampaigns" or xl."linkedinAccountId" in (
+          select ca."linkedinAccountId" from "CampaignAccount" ca where ca."campaignId" = xc.id))))
+  ))`;
+
 /** Leads this sender may invite (campaign assignment + active campaign rules). */
 export const pendingLeadsSendableByAccount = async (linkedinAccountId: string): Promise<SQL> => {
   const excludedPeople = await alreadyContactedPeopleByAccount(linkedinAccountId);
@@ -77,7 +101,8 @@ export const pendingLeadsSendableByAccount = async (linkedinAccountId: string): 
     isNotNull(leads.personId),
     isNull(leads.sourceLinkedinIdentifier),
     ...(excludedPeople.length > 0 ? [notInArray(leads.personId, excludedPeople)] : []),
-    campaignEligibility(linkedinAccountId)
+    campaignEligibility(linkedinAccountId),
+    sql`not ${excludedByCampaign(leads.personId, leads.campaignId)}`
   )!;
 };
 
@@ -91,6 +116,7 @@ export const pendingLeadsResolvableByAccount = async (linkedinAccountId: string)
     isNotNull(leads.sourceLinkedinIdentifier),
     or(isNull(leads.resolveNextAttemptAt), lte(leads.resolveNextAttemptAt, new Date())),
     ...(excludedPeople.length > 0 ? [notInArray(leads.personId, excludedPeople)] : []),
-    campaignEligibility(linkedinAccountId)
+    campaignEligibility(linkedinAccountId),
+    sql`not ${excludedByCampaign(leads.personId, leads.campaignId)}`
   )!;
 };

@@ -222,6 +222,9 @@ export function SearchBatchesClient({
             name: a.name,
             profilePictureUrl: a.profilePictureUrl,
             searchLeadsToday: a.searchLeadsToday,
+            // The accounts API has no search limit; without this CapacityMeter
+            // got `limit: undefined` and crashed the page on the first poll.
+            searchLimit: initialAccounts[0]?.searchLimit ?? DAILY_SEARCH_LEAD_LIMIT,
           })),
       );
     }

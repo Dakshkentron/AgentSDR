@@ -68,6 +68,12 @@ export type SetupStep = string | { text: string; copy: string };
 
 export type PlatformIntegration = {
   key: PlatformKey;
+  /**
+   * Speaks Unipile's API: stores Unipile's credential shape, and serves every
+   * "unipile" credential request while it is the one connected. Adding
+   * another such provider is a catalog entry plus its PlatformKey.
+   */
+  unipileCompatible?: boolean;
   name: string;
   description: string;
   /** What stops working without it — shown on the card and in Connect prompts. */
@@ -101,6 +107,7 @@ const GMAIL_SCOPES = "https://www.googleapis.com/auth/gmail.send,https://www.goo
 export const PLATFORM_INTEGRATIONS: readonly PlatformIntegration[] = [
   {
     key: "unipile",
+    unipileCompatible: true,
     name: "Unipile",
     description: "Connects LinkedIn and WhatsApp accounts for sending, inbox sync and calling.",
     enables: ["LinkedIn accounts and campaigns", "WhatsApp messaging and calling"],
@@ -144,6 +151,7 @@ export const PLATFORM_INTEGRATIONS: readonly PlatformIntegration[] = [
   },
   {
     key: "leopile",
+    unipileCompatible: true,
     name: "Leopile",
     description: "A faster, Unipile-compatible connection for LinkedIn accounts. Use it instead of Unipile — connect one or the other.",
     enables: ["LinkedIn accounts and campaigns", "WhatsApp messaging and calling"],
@@ -322,6 +330,13 @@ export const PLATFORM_SETTINGS_LABEL: Record<PlatformKey, string> = {
   leopile: "Settings → LinkedIn → Connection",
   r2: "Settings → WhatsApp → Integrations",
 };
+
+/** Providers that can stand in for Unipile; an organization connects at most one. */
+export const UNIPILE_COMPATIBLE_KEYS: readonly PlatformKey[] = PLATFORM_INTEGRATIONS.filter((i) => i.unipileCompatible).map((i) => i.key);
+
+export function isUnipileCompatible(key: PlatformKey): boolean {
+  return UNIPILE_COMPATIBLE_KEYS.includes(key);
+}
 
 export function getPlatformIntegration(key: string): PlatformIntegration | null {
   return PLATFORM_INTEGRATIONS.find((integration) => integration.key === key) ?? null;
