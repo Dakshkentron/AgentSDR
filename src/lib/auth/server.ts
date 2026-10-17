@@ -184,7 +184,8 @@ export const auth = betterAuth({
 export type AuthSession = typeof auth.$Infer.Session;
 
 /**
- * Whether "Continue with Google" should be offered.
- * ponytail: hidden for now even when configured; set back to `googleConfigured` to show it.
+ * Whether "Continue with Google" should be offered — shown once Google is
+ * configured (GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET). A Google sign-in with
+ * no organization lands on onboarding, which makes one named after the person.
  */
-export const GOOGLE_SIGN_IN_ENABLED = false;
+export const GOOGLE_SIGN_IN_ENABLED = googleConfigured;
