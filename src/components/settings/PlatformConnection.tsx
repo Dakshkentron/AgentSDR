@@ -133,6 +133,12 @@ function PlatformCard({
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             {!connected && integration.guideUrl && <DocsLink href={integration.guideUrl} />}
+            <Button.Root asChild variant="neutral" mode="ghost" size="small">
+              <a href={integration.websiteUrl} target="_blank" rel="noreferrer">
+                Website
+                <Button.Icon as={RiExternalLinkLine} />
+              </a>
+            </Button.Root>
             {connected && (
               <Button.Root variant="error" mode="ghost" size="small" disabled={busy} onClick={disconnect}>
                 Disconnect
@@ -161,7 +167,7 @@ function PlatformCard({
           </dl>
         )}
 
-        {connected && integration.key === "unipile" && <UnipileWebhooks registration={status?.webhooks ?? null} />}
+        {connected && (integration.key === "unipile" || integration.key === "leopile") && <UnipileWebhooks registration={status?.webhooks ?? null} />}
       </FramePanel>
     </Frame>
   );

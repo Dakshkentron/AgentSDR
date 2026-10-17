@@ -30,7 +30,7 @@ const apply = process.argv.includes("--apply");
 const overwrite = process.argv.includes("--overwrite");
 
 /** Platform field → the env var that used to hold it. */
-const FROM_ENV: Record<PlatformKey, Record<string, string>> = {
+const FROM_ENV: Record<Exclude<PlatformKey, "leopile">, Record<string, string>> = {
   unipile: {
     baseUrl: "UNIPILE_BASE_URL",
     apiKey: "UNIPILE_API_KEY",
@@ -53,7 +53,7 @@ function env(name: string): string {
   return (process.env[name] ?? "").trim();
 }
 
-async function migratePlatform(key: PlatformKey): Promise<boolean> {
+async function migratePlatform(key: keyof typeof FROM_ENV): Promise<boolean> {
   const integration = getPlatformIntegration(key)!;
   const label = integration.name.padEnd(18);
   const values = Object.fromEntries(Object.entries(FROM_ENV[key]).map(([field, name]) => [field, env(name)]));
@@ -118,7 +118,7 @@ async function main() {
   }
   console.log(apply ? "Migrating env → Integrations\n" : "Dry run (pass --apply to save)\n");
   const results = [];
-  for (const key of Object.keys(FROM_ENV) as PlatformKey[]) results.push(await migratePlatform(key));
+  for (const key of Object.keys(FROM_ENV) as (keyof typeof FROM_ENV)[]) results.push(await migratePlatform(key));
   results.push(await migrateTranscriptionModel());
   return results.every(Boolean);
 }

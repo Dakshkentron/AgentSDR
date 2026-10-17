@@ -14,7 +14,7 @@ export async function verifyPlatformCredentials<K extends PlatformKey>(
   key: K,
   credentials: PlatformCredentials[K],
 ): Promise<void> {
-  if (key === "unipile") return verifyUnipile(credentials as PlatformCredentials["unipile"]);
+  if (key === "unipile" || key === "leopile") return verifyUnipile(credentials as PlatformCredentials["unipile"]);
   if (key === "google") return verifyGoogle(credentials as PlatformCredentials["google"]);
   if (key === "r2") return verifyR2(credentials as PlatformCredentials["r2"]);
   throw new Error("Unknown integration");

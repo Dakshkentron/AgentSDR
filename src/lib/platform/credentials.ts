@@ -77,7 +77,24 @@ function rowKey(key: PlatformKey): string {
   return `platform-${key}`;
 }
 
+/**
+ * Leopile is a drop-in for Unipile (same API), so everything that asks for
+ * "unipile" is served Leopile's credentials when only Leopile is connected.
+ * An organization connects one or the other, never both.
+ */
 async function load(key: PlatformKey): Promise<Record<string, string> | null> {
+  const own = await loadRow(key);
+  return own ?? (key === "unipile" ? loadRow("leopile") : null);
+}
+
+/** Which of the two Unipile-compatible rows backs "unipile" right now. */
+async function unipileSource(): Promise<"unipile" | "leopile"> {
+  return (await loadRow("unipile")) ? "unipile" : "leopile";
+}
+
+const OTHER_UNIPILE: Partial<Record<PlatformKey, PlatformKey>> = { unipile: "leopile", leopile: "unipile" };
+
+async function loadRow(key: PlatformKey): Promise<Record<string, string> | null> {
   const hit = cache.get(cacheKey(key));
   if (hit && hit.expires > Date.now()) return hit.value;
 
@@ -149,8 +166,13 @@ export async function savePlatformIntegration(key: PlatformKey, input: Record<st
     throw new Error("Field values must be text");
   }
 
+  const other = OTHER_UNIPILE[key];
+  if (other && (await loadRow(other))) {
+    throw new Error(`Disconnect ${getPlatformIntegration(other)?.name} first — connect Unipile or Leopile, not both`);
+  }
+
   cache.delete(cacheKey(key));
-  const existing = (await load(key)) ?? {};
+  const existing = (await loadRow(key)) ?? {};
   const merged: Record<string, string> = {};
   for (const field of integration.fields) {
     const given = String(input[field.key] ?? "").trim();
@@ -160,7 +182,7 @@ export async function savePlatformIntegration(key: PlatformKey, input: Record<st
   const missing = integration.fields.find((field) => field.required && !merged[field.key]);
   if (missing) throw new Error(`${missing.label} is required`);
   // Unipile's webhook secret is ours to make: nobody should have to invent one.
-  if (key === "unipile" && !merged.notifySecret) merged.notifySecret = randomBytes(32).toString("base64url");
+  if ((key === "unipile" || key === "leopile") && !merged.notifySecret) merged.notifySecret = randomBytes(32).toString("base64url");
 
   const credentials = normalize(key, merged);
   await verifyPlatformCredentials(key, credentials);
@@ -196,8 +218,9 @@ export async function savePlatformIntegration(key: PlatformKey, input: Record<st
 
   cache.delete(cacheKey(key));
   const webhooks =
-    key === "unipile"
+    key === "unipile" || key === "leopile"
       ? await storeWebhookRegistration(
+          key,
           await registerUnipileWebhooks(currentOrganizationId(), credentials as PlatformCredentials["unipile"]),
         )
       : null;
@@ -212,11 +235,14 @@ export async function savePlatformIntegration(key: PlatformKey, input: Record<st
 }
 
 /** Record a Unipile webhook registration on the integration's row, for Settings to show. */
-async function storeWebhookRegistration(registration: UnipileWebhookRegistration): Promise<UnipileWebhookRegistration> {
+async function storeWebhookRegistration(
+  key: "unipile" | "leopile",
+  registration: UnipileWebhookRegistration,
+): Promise<UnipileWebhookRegistration> {
   const [row] = await db
     .select({ id: gridProviders.id, config: gridProviders.config })
     .from(gridProviders)
-    .where(and(inOrg(gridProviders), eq(gridProviders.key, rowKey("unipile"))))
+    .where(and(inOrg(gridProviders), eq(gridProviders.key, rowKey(key))))
     .limit(1);
   if (row) {
     await db
@@ -230,7 +256,7 @@ async function storeWebhookRegistration(registration: UnipileWebhookRegistration
 /** Register Unipile's webhooks again (Settings → LinkedIn → Connection → Register again). */
 export async function reregisterUnipileWebhooks(): Promise<UnipileWebhookRegistration> {
   const credentials = await requirePlatformCredentials("unipile");
-  return storeWebhookRegistration(await registerUnipileWebhooks(currentOrganizationId(), credentials));
+  return storeWebhookRegistration(await unipileSource(), await registerUnipileWebhooks(currentOrganizationId(), credentials));
 }
 
 /**
@@ -246,12 +272,14 @@ export async function revealUnipileWebhookSetup(): Promise<{ endpoints: UnipileW
 
 /** Deletes the row and its credentials (cascade). Features depending on it stop at once in this process. */
 export async function disconnectPlatformIntegration(key: PlatformKey): Promise<void> {
-  if (key === "unipile") {
-    const credentials = await getPlatformCredentials("unipile");
+  if (key === "unipile" || key === "leopile") {
+    const raw = await loadRow(key);
+    const credentials = raw ? normalize("unipile", raw) : null;
     if (credentials) await unregisterUnipileWebhooks(currentOrganizationId(), credentials);
   }
   await db.delete(gridProviders).where(and(inOrg(gridProviders), eq(gridProviders.key, rowKey(key))));
   cache.delete(cacheKey(key));
+  cache.delete(cacheKey("unipile"));
 }
 
 /**
@@ -270,12 +298,12 @@ export async function listOrganizationsWithPlatform(key: PlatformKey): Promise<s
 
 function normalize<K extends PlatformKey>(key: K, raw: Record<string, string>): PlatformCredentials[K] {
   const text = (name: string) => (raw[name] ?? "").trim();
-  if (key === "unipile") {
+  if (key === "unipile" || key === "leopile") {
     // The dashboard shows the DSN without a scheme; accept it as shown.
     const dsn = text("baseUrl").replace(/\/+$/, "");
     const baseUrl = dsn && !/^[a-z]+:\/\//i.test(dsn) ? `https://${dsn}` : dsn;
     if (baseUrl && !/^https:\/\/[^\s/]+$/.test(baseUrl)) {
-      throw new Error("Unipile DSN must look like api8.unipile.com:13851");
+      throw new Error("DSN must look like api8.unipile.com:13851 or leopile.onrender.com");
     }
     const value: PlatformCredentials["unipile"] = {
       baseUrl,

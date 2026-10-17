@@ -16,7 +16,7 @@
 
 import { docsPageUrl } from "@/lib/support";
 
-export type PlatformKey = "unipile" | "google" | "r2";
+export type PlatformKey = "unipile" | "leopile" | "google" | "r2";
 
 /** The decrypted credential object stored for each platform. */
 export type PlatformCredentials = {
@@ -30,6 +30,8 @@ export type PlatformCredentials = {
      */
     notifySecret: string;
   };
+  /** Leopile speaks Unipile's API, so it stores the same shape and the Unipile client uses it as-is. */
+  leopile: PlatformCredentials["unipile"];
   google: {
     /** The service account's email, …@….iam.gserviceaccount.com. */
     clientEmail: string;
@@ -134,6 +136,47 @@ export const PLATFORM_INTEGRATIONS: readonly PlatformIntegration[] = [
         key: "notifySecret",
         label: "Webhook secret",
         help: "Leave empty: AgentSDR generates one and registers the webhooks with it. Fill it in only to keep a secret you already use.",
+        inputType: "password",
+        required: false,
+        secret: true,
+      },
+    ],
+  },
+  {
+    key: "leopile",
+    name: "Leopile",
+    description: "A faster, Unipile-compatible connection for LinkedIn accounts. Use it instead of Unipile — connect one or the other.",
+    enables: ["LinkedIn accounts and campaigns", "WhatsApp messaging and calling"],
+    websiteUrl: "https://leopile.onrender.com",
+    iconUrl: "/Integrations - Icon/unipile.png",
+    setupSteps: [
+      "Open the Leopile console at leopile.onrender.com and create an account (or sign in).",
+      "Connect your LinkedIn account under Accounts.",
+      "Copy the DSN shown in Settings and create an access token under Tokens.",
+      "Save. AgentSDR registers the webhooks it needs in Leopile itself, with a secret it generates.",
+    ],
+    fields: [
+      {
+        key: "baseUrl",
+        label: "DSN (API address)",
+        placeholder: "leopile.onrender.com",
+        help: "Leopile console → Settings. https:// is added if missing.",
+        inputType: "text",
+        required: true,
+        secret: false,
+      },
+      {
+        key: "apiKey",
+        label: "Access token",
+        help: "Leopile console → Tokens → Create. Copy it right away; it is shown only once.",
+        inputType: "password",
+        required: true,
+        secret: true,
+      },
+      {
+        key: "notifySecret",
+        label: "Webhook secret",
+        help: "Leave empty: AgentSDR generates one and registers the webhooks with it.",
         inputType: "password",
         required: false,
         secret: true,
@@ -268,6 +311,7 @@ export const OPENROUTER_ICON_URL = "/Integrations - Icon/openrouter.svg";
 export const PLATFORM_SETTINGS_HREF: Record<PlatformKey, string> = {
   google: "/settings/email-connection",
   unipile: "/settings/linkedin-connection",
+  leopile: "/settings/linkedin-connection",
   r2: "/settings/whatsapp-connection",
 };
 
@@ -275,6 +319,7 @@ export const PLATFORM_SETTINGS_HREF: Record<PlatformKey, string> = {
 export const PLATFORM_SETTINGS_LABEL: Record<PlatformKey, string> = {
   google: "Settings → Email → Connection",
   unipile: "Settings → LinkedIn → Connection",
+  leopile: "Settings → LinkedIn → Connection",
   r2: "Settings → WhatsApp → Integrations",
 };
 
