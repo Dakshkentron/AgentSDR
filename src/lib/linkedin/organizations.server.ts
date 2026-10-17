@@ -1,7 +1,8 @@
 import { timingSafeEqual } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { gridProviders } from "@/lib/grid/schema";
+import { UNIPILE_COMPATIBLE_KEYS } from "@/lib/platform/catalog";
 import { authContextErrorResponse, requireOrgContext, withOrgContext, type OrgContext } from "@/lib/auth/context";
 import { getPlatformCredentials } from "@/lib/platform/credentials";
 import { runInOrganization } from "@/lib/tenancy/scope";
@@ -19,8 +20,10 @@ export async function unipileOrganizationIds(): Promise<string[]> {
   const rows = await db
     .select({ organizationId: gridProviders.organizationId })
     .from(gridProviders)
-    .where(and(eq(gridProviders.key, "platform-unipile"), eq(gridProviders.enabled, true)));
-  return rows.map((row) => row.organizationId);
+    // Any Unipile-compatible provider (Unipile, Leopile, …): an organization on Leopile must
+    // still get its campaigns, follow-ups and message sync.
+    .where(and(inArray(gridProviders.key, UNIPILE_COMPATIBLE_KEYS.map((key) => `platform-${key}`)), eq(gridProviders.enabled, true)));
+  return [...new Set(rows.map((row) => row.organizationId))];
 }
 
 /** The organization that owns a Unipile account id (LinkedInAccount.linkedinId is globally unique), or null. */
