@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, FileSpreadsheet, Loader2, Rocket, Search, Users } from "lucide-react";
@@ -61,34 +61,70 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [importSummary, setImportSummary] = useState<string | null>(null);
-  const [searches, setSearches] = useState<{ id: string; name: string; leadCount: number }[] | null>(null);
-  const [searchId, setSearchId] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchUrlInput, setSearchUrlInput] = useState("");
+  const [searchBusy, setSearchBusy] = useState(false);
+  const [activeSearch, setActiveSearch] = useState<{ id: string; status: string; leadsFetched: number } | null>(null);
 
-  async function openSearches() {
+  async function startSearch() {
+    if (!campaignId || !searchUrlInput.trim()) return;
+    if (accountIds.length === 0) { setError("Pick a sender in Campaign details before fetching a search"); return; }
+    setSearchBusy(true);
     setError(null);
-    const response = await fetch("/api/linkedin/search/batches");
-    const data = await response.json().catch(() => null);
-    const found = ((data?.batches ?? []) as { id: string; name: string; leadCount: number }[]).filter((b) => b.leadCount > 0);
-    setSearches(found);
-    setSearchId(found[0]?.id ?? "");
+    try {
+      const response = await fetch("/api/linkedin/search/batches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: `${name || "Campaign"} search — ${new Date().toLocaleString()}`,
+          kind: "SINGLE",
+          urls: [{ url: searchUrlInput.trim() }],
+          accountIds,
+          run: true,
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.ok) throw new Error(data?.error || "Could not start that search");
+      setActiveSearch({ id: data.id, status: "RUNNING", leadsFetched: 0 });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSearchBusy(false);
+    }
   }
 
+  // Poll the search this step just kicked off, so "Add leads" lights up as results
+  // trickle in instead of making the user go find the search on a separate page.
+  useEffect(() => {
+    if (!activeSearch || ["COMPLETED", "FAILED"].includes(activeSearch.status)) return;
+    const interval = setInterval(async () => {
+      const response = await fetch(`/api/linkedin/search/batches/${activeSearch.id}`);
+      const data = await response.json().catch(() => null);
+      const query = data?.detail?.queries?.[0];
+      if (!query) return;
+      setActiveSearch((current) => current && { ...current, status: query.status, leadsFetched: query.leadsFetched ?? 0 });
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [activeSearch?.id, activeSearch?.status]);
+
   async function addFromSearch() {
-    if (!campaignId || !searchId) return;
+    if (!campaignId || !activeSearch) return;
     setBusy(true);
     setError(null);
     try {
       const response = await fetch(`/api/linkedin/campaigns/${campaignId}/from-search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ batchId: searchId }),
+        body: JSON.stringify({ batchId: activeSearch.id }),
       });
       const result = await response.json().catch(() => null);
       if (!response.ok || !result?.ok) throw new Error(result?.error || "Could not add leads from the search");
       const added = Number(result.created ?? 0) + Number(result.attached ?? 0);
       setLeadCount((current) => current + added);
       setImportSummary(`${added} added from LinkedIn search${Number(result.skipped ?? 0) ? ` · ${Number(result.skipped)} already enrolled` : ""}${Number(result.failed ?? 0) ? ` · ${Number(result.failed)} failed` : ""}`);
-      setSearches(null);
+      setShowSearch(false);
+      setActiveSearch(null);
+      setSearchUrlInput("");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -288,10 +324,10 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
               <div className="mx-auto max-w-3xl">
                 <StepHeading title="Add leads" description="Add the people a LinkedIn search found, import a spreadsheet, or select people already in your database." />
                 <div className="mt-6 grid gap-4 sm:grid-cols-3">
-                  <button type="button" onClick={() => void openSearches()} className="flex min-h-44 flex-col items-center justify-center rounded-2xl bg-bg-white-0 p-6 text-center shadow-regular-xs outline-none ring-1 ring-inset ring-stroke-soft-200 transition hover:bg-bg-weak-50 focus-visible:ring-2 focus-visible:ring-primary-base">
+                  <button type="button" onClick={() => setShowSearch(true)} className="flex min-h-44 flex-col items-center justify-center rounded-2xl bg-bg-white-0 p-6 text-center shadow-regular-xs outline-none ring-1 ring-inset ring-stroke-soft-200 transition hover:bg-bg-weak-50 focus-visible:ring-2 focus-visible:ring-primary-base">
                     <span className="flex size-10 items-center justify-center rounded-xl bg-bg-weak-50 ring-1 ring-inset ring-stroke-soft-200"><Search className="size-5 text-text-sub-600" /></span>
                     <span className="mt-3 text-label-md text-text-strong-950">From a LinkedIn search</span>
-                    <span className="mt-1 text-paragraph-xs text-text-sub-600">Add everyone one of your searches found.</span>
+                    <span className="mt-1 text-paragraph-xs text-text-sub-600">Paste a LinkedIn search URL — we fetch it for you.</span>
                   </button>
                   <button type="button" onClick={() => fileRef.current?.click()} className="flex min-h-44 flex-col items-center justify-center rounded-2xl border border-dashed border-stroke-sub-300 bg-bg-weak-50 p-6 text-center outline-none transition hover:border-primary-base focus-visible:ring-2 focus-visible:ring-primary-base">
                     <span className="flex size-10 items-center justify-center rounded-xl bg-bg-white-0 ring-1 ring-inset ring-stroke-soft-200"><FileSpreadsheet className="size-5 text-text-sub-600" /></span>
@@ -304,22 +340,33 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
                     <span className="mt-1 text-paragraph-xs text-text-sub-600">Select existing people who already have a LinkedIn profile.</span>
                   </button>
                 </div>
-                {searches && (
+                {showSearch && (
                   <div className="mt-4 rounded-xl bg-bg-white-0 p-4 ring-1 ring-inset ring-stroke-soft-200">
-                    {searches.length === 0 ? (
-                      <p className="text-paragraph-sm text-text-sub-600">
-                        No search has found anyone yet. <Link href="/linkedin/search" className="text-primary-base underline">Run a search</Link>, then come back.
-                      </p>
-                    ) : (
+                    {!activeSearch ? (
                       <div className="flex flex-wrap items-center gap-2">
-                        <select aria-label="LinkedIn search" value={searchId} onChange={(event) => setSearchId(event.target.value)} className="h-9 min-w-0 flex-1 rounded-lg bg-bg-white-0 px-3 text-paragraph-sm ring-1 ring-inset ring-stroke-soft-200">
-                          {searches.map((b) => (
-                            <option key={b.id} value={b.id}>{b.name} — {b.leadCount.toLocaleString()} {b.leadCount === 1 ? "person" : "people"}</option>
-                          ))}
-                        </select>
-                        <AlignButton.Root variant="primary" mode="filled" size="small" onClick={() => void addFromSearch()} disabled={busy || !searchId}>
+                        <input
+                          value={searchUrlInput}
+                          onChange={(event) => setSearchUrlInput(event.target.value)}
+                          placeholder="Paste a LinkedIn (or Sales Navigator) search URL, or type keywords"
+                          className="h-9 min-w-0 flex-1 rounded-lg bg-bg-white-0 px-3 text-paragraph-sm ring-1 ring-inset ring-stroke-soft-200"
+                        />
+                        <AlignButton.Root variant="primary" mode="filled" size="small" onClick={() => void startSearch()} disabled={searchBusy || !searchUrlInput.trim()}>
+                          {searchBusy && <AlignButton.Icon as={Loader2} className="animate-spin" />}
+                          {searchBusy ? "Starting…" : "Fetch"}
+                        </AlignButton.Root>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-paragraph-sm text-text-sub-600">
+                          {activeSearch.status === "RUNNING" || activeSearch.status === "QUEUED"
+                            ? `Fetching… ${activeSearch.leadsFetched.toLocaleString()} found so far`
+                            : activeSearch.status === "PAUSED_LIMIT"
+                              ? `${activeSearch.leadsFetched.toLocaleString()} found — paused, daily search quota reached`
+                              : `${activeSearch.leadsFetched.toLocaleString()} found`}
+                        </p>
+                        <AlignButton.Root variant="primary" mode="filled" size="small" onClick={() => void addFromSearch()} disabled={busy || activeSearch.leadsFetched === 0}>
                           {busy && <AlignButton.Icon as={Loader2} className="animate-spin" />}
-                          {busy ? "Adding…" : "Add leads"}
+                          {busy ? "Adding…" : `Add ${activeSearch.leadsFetched.toLocaleString()} leads`}
                         </AlignButton.Root>
                       </div>
                     )}

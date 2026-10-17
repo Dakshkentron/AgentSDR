@@ -8,6 +8,24 @@ type PersonRow = {
   company: { name: string | null; domain: string } | null;
 };
 
+type LiveResult = {
+  linkedinUrl: string;
+  name: string | null;
+  headline: string | null;
+  location: string | null;
+  profilePictureUrl: string | null;
+  networkDistance: string | null;
+};
+
+function networkBadge(d: string | null): string | null {
+  if (!d) return null;
+  const n = d.replace("DISTANCE_", "");
+  if (n === "1") return "1st · connection";
+  if (n === "2") return "2nd";
+  if (n === "3") return "3rd";
+  return n === "OUT_OF_NETWORK" ? "Out of network" : null;
+}
+
 export default function AddPeopleToCampaignModal({
   campaignId,
   channel,
@@ -26,6 +44,15 @@ export default function AddPeopleToCampaignModal({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // LinkedIn-only: fetch someone AgentSDR hasn't seen before, by profile URL or a live
+  // name search, instead of only picking from people already in the People database.
+  const [profileUrl, setProfileUrl] = useState("");
+  const [fetchingUrl, setFetchingUrl] = useState(false);
+  const [liveResults, setLiveResults] = useState<LiveResult[] | null>(null);
+  const [liveSelected, setLiveSelected] = useState<Set<string>>(new Set());
+  const [liveSearching, setLiveSearching] = useState(false);
+  const [liveError, setLiveError] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -83,6 +110,72 @@ export default function AddPeopleToCampaignModal({
     }
   }
 
+  async function fetchByUrl() {
+    if (!profileUrl.trim()) return;
+    setFetchingUrl(true);
+    setLiveError(null);
+    try {
+      const response = await fetch(`/api/linkedin/campaigns/${campaignId}/from-lookup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: profileUrl.trim() }),
+      });
+      const body = await response.json();
+      if (!response.ok || !body.ok) throw new Error(body.error ?? "Could not fetch that profile");
+      const added = Number(body.created ?? 0) + Number(body.attached ?? 0);
+      onAdded({ requested: 1, added, skippedMissingIdentity: 0, skippedDuplicate: Number(body.skipped ?? 0), skippedSuppressed: 0 });
+      onClose();
+    } catch (cause) {
+      setLiveError(cause instanceof Error ? cause.message : "Could not fetch that profile");
+    } finally {
+      setFetchingUrl(false);
+    }
+  }
+
+  async function searchLive() {
+    if (!query.trim()) return;
+    setLiveSearching(true);
+    setLiveError(null);
+    try {
+      const response = await fetch("/api/linkedin/search/live", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: query.trim() }),
+      });
+      const body = await response.json();
+      if (!response.ok || !body.ok) throw new Error(body.error ?? "LinkedIn search failed");
+      setLiveResults(body.results ?? []);
+      setLiveSelected(new Set());
+    } catch (cause) {
+      setLiveError(cause instanceof Error ? cause.message : "LinkedIn search failed");
+    } finally {
+      setLiveSearching(false);
+    }
+  }
+
+  async function addLiveSelected() {
+    const rows = (liveResults ?? []).filter((r) => liveSelected.has(r.linkedinUrl));
+    if (rows.length === 0) return;
+    setSaving(true);
+    setLiveError(null);
+    try {
+      const response = await fetch(`/api/linkedin/campaigns/${campaignId}/from-lookup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows }),
+      });
+      const body = await response.json();
+      if (!response.ok || !body.ok) throw new Error(body.error ?? "Could not add selected leads");
+      const added = Number(body.created ?? 0) + Number(body.attached ?? 0);
+      onAdded({ requested: rows.length, added, skippedMissingIdentity: 0, skippedDuplicate: Number(body.skipped ?? 0), skippedSuppressed: 0 });
+      onClose();
+    } catch (cause) {
+      setLiveError(cause instanceof Error ? cause.message : "Could not add selected leads");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const identity = (person: PersonRow["person"]) => (channel === "email" ? person.email : channel === "whatsapp" ? person.phone : person.linkedinUrl);
   const eligible = rows.filter(({ person }) => identity(person));
   return createPortal(
@@ -92,13 +185,85 @@ export default function AddPeopleToCampaignModal({
         <div className="border-b border-slate-200 p-5">
           <h2 className="text-base font-semibold text-slate-900">Add from People</h2>
           <p className="mt-1 text-sm text-slate-500">Only people with a {channel === "email" ? "valid email" : channel === "whatsapp" ? "phone number" : "LinkedIn profile"} can be selected.</p>
-          <input
-            className="mt-4 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-400"
-            placeholder="Search name, email, company, domain, or LinkedIn…"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
+          <div className="mt-4 flex gap-2">
+            <input
+              className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-400"
+              placeholder="Search name, email, company, domain, or LinkedIn…"
+              value={query}
+              onChange={(event) => { setQuery(event.target.value); setLiveResults(null); }}
+            />
+            {channel === "linkedin" && (
+              <button
+                type="button"
+                className="shrink-0 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                disabled={!query.trim() || liveSearching}
+                onClick={() => void searchLive()}
+              >
+                {liveSearching ? "Searching…" : "Search LinkedIn live"}
+              </button>
+            )}
+          </div>
+          {channel === "linkedin" && (
+            <div className="mt-2 flex gap-2">
+              <input
+                className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-400"
+                placeholder="Or paste a LinkedIn profile URL to fetch and add that person directly"
+                value={profileUrl}
+                onChange={(event) => setProfileUrl(event.target.value)}
+              />
+              <button
+                type="button"
+                className="shrink-0 rounded-lg bg-indigo-600 px-3 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                disabled={!profileUrl.trim() || fetchingUrl}
+                onClick={() => void fetchByUrl()}
+              >
+                {fetchingUrl ? "Fetching…" : "Fetch & add"}
+              </button>
+            </div>
+          )}
+          {liveError && <p className="mt-2 text-sm text-red-600">{liveError}</p>}
         </div>
+        {liveResults && (
+          <div className="border-b border-slate-200 bg-slate-50 p-3">
+            <p className="px-2 pb-1 text-xs font-medium text-slate-500">
+              {liveResults.length === 0 ? "No results on LinkedIn for that search." : `${liveResults.length} found on LinkedIn — pick who to add`}
+            </p>
+            <div className="max-h-56 overflow-y-auto">
+              {liveResults.map((r) => (
+                <label key={r.linkedinUrl} className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-white">
+                  <input
+                    type="checkbox"
+                    checked={liveSelected.has(r.linkedinUrl)}
+                    onChange={() => setLiveSelected((current) => {
+                      const next = new Set(current);
+                      if (next.has(r.linkedinUrl)) next.delete(r.linkedinUrl); else next.add(r.linkedinUrl);
+                      return next;
+                    })}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-slate-900">{r.name || r.linkedinUrl}</span>
+                    <span className="block truncate text-xs text-slate-500">{r.headline}{r.location ? ` · ${r.location}` : ""}</span>
+                  </span>
+                  {networkBadge(r.networkDistance) && (
+                    <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">{networkBadge(r.networkDistance)}</span>
+                  )}
+                </label>
+              ))}
+            </div>
+            {liveResults.length > 0 && (
+              <div className="flex justify-end pt-2">
+                <button
+                  type="button"
+                  className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                  disabled={!liveSelected.size || saving}
+                  onClick={() => void addLiveSelected()}
+                >
+                  {saving ? "Adding…" : `Add ${liveSelected.size || ""} selected`}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         <div className="min-h-48 flex-1 overflow-y-auto p-3">
           {loading ? <p className="p-4 text-sm text-slate-500">Loading…</p> : eligible.length === 0 ? <p className="p-4 text-sm text-slate-500">No eligible people found.</p> : eligible.map(({ person, company }) => (
             <label key={person.id} className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-slate-50">
