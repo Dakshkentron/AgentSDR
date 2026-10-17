@@ -35,13 +35,10 @@ const getTodayStart = (): Date => {
 
 const isAccountLimitError = (err: unknown): boolean => {
   if (!(err instanceof UnsuccessfulRequestError)) return false;
-  const message = extractApiErrorDetail(err.body);
-  return (
-    message.toLowerCase().includes("limit") ||
-    message.toLowerCase().includes("quota") ||
-    message.toLowerCase().includes("invitation_limit") ||
-    message.toLowerCase().includes("weekly")
-  );
+  // Real limit phrases only: a bare "limit"/"quota" also matches URLs (limit=100) and endpoint
+  // names (verifyQuotaAndCreateV2), which paused accounts on unrelated failures.
+  return /weekly|invitation[_ ]?limit|limit[_ ](reached|exceeded)|quota[_ ](reached|exceeded)|exceeded[^.]*(limit|quota)|too many (invitations|requests)/i
+    .test(extractApiErrorDetail(err.body));
 };
 
 export const sendInvitations = async (account: LinkedInAccount): Promise<void> => {
@@ -188,7 +185,7 @@ export const sendInvitations = async (account: LinkedInAccount): Promise<void> =
       await sleep(delay);
     } catch (err) {
       if (isAccountLimitError(err)) {
-        console.warn(`[sendInvitations] Account limit reached for ${account.username} — pausing for today`);
+        console.warn(`[sendInvitations] Account limit reached for ${account.username} — pausing for today: ${serializeError(err)}`);
         // Revert the claim so the lead can be picked up by another account or next day
         await db
           .update(leads)
