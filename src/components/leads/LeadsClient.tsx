@@ -10,14 +10,17 @@ import * as Dropdown from "@/components/alignui/dropdown";
 import * as Input from "@/components/alignui/input";
 import * as Pagination from "@/components/alignui/pagination";
 import { Frame, FrameHeader, FramePanel } from "@/components/analytics/kit/Frame";
+import { useDialogs } from "@/components/DialogProvider";
 import { ErrorState } from "@/components/crm/CrmLayout";
 import { EmptyState } from "@/components/page/EmptyState";
 import { PageContainer, PageHeader } from "@/components/page/PageHeader";
 import { PageTabs } from "@/components/page/PageTabs";
+import { isAllPageSelected, isSomePageSelected, toggleAllOnPage, toggleLeadSelection } from "@/lib/linkedin/leadSelection";
 import { cn } from "@/utils/cn";
 import AddFromLinkedInPicker from "./AddFromLinkedInPicker";
 import { CompaniesTable } from "./CompaniesTable";
 import { LeadsFilterPopover, type Subcategory } from "./LeadsFilterPopover";
+import { PeopleBulkActionBar } from "./PeopleBulkActionBar";
 import { PeopleImportModal } from "./PeopleImportModal";
 import { PeopleTable } from "./PeopleTable";
 import { activeFilterCount, EMPTY_FILTERS, PAGE_SIZE, SORTS, type CompanyRow, type Direction, type LeadsTab, type PeopleFilters, type PersonRow } from "./leadTypes";
@@ -32,11 +35,12 @@ const freshList = <F,>(filters: F): ListState<F> => ({ query: "", filters, sort:
 const freshPeople = () => freshList<PeopleFilters>(EMPTY_FILTERS);
 const freshCompanies = () => freshList<null>(null);
 
-function requestUrl(tab: LeadsTab, state: ListState<PeopleFilters | null>): string {
-  const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(state.page * PAGE_SIZE), sort: state.sort, direction: state.direction });
+/** Query params for the People list's filters + search, shared by the paginated fetch, the "select all matching" ids lookup, and a matchFilters bulk delete. */
+function peopleFilterParams(state: Pick<ListState<PeopleFilters | null>, "query" | "filters">): URLSearchParams {
+  const params = new URLSearchParams();
   if (state.query.trim()) params.set("q", state.query.trim());
   const f = state.filters;
-  if (tab === "people" && f) {
+  if (f) {
     if (f.campaignChannel) params.set("campaignChannel", f.campaignChannel);
     if (f.hasEmail) params.set("hasEmail", "true");
     if (f.hasLinkedin) params.set("hasLinkedin", "true");
@@ -45,6 +49,15 @@ function requestUrl(tab: LeadsTab, state: ListState<PeopleFilters | null>): stri
     if (f.crmWorkflowState) params.set("crmWorkflowState", f.crmWorkflowState);
     if (f.crmAiChange) params.set("crmAiChange", "true");
   }
+  return params;
+}
+
+function requestUrl(tab: LeadsTab, state: ListState<PeopleFilters | null>): string {
+  const params = tab === "people" ? peopleFilterParams(state) : new URLSearchParams();
+  params.set("limit", String(PAGE_SIZE));
+  params.set("offset", String(state.page * PAGE_SIZE));
+  params.set("sort", state.sort);
+  params.set("direction", state.direction);
   return `/api/leads/${tab}?${params}`;
 }
 
@@ -61,6 +74,7 @@ function pageItems(current: number, pages: number): Array<number | "gap-start" |
 }
 
 export default function LeadsClient({ initialTab, initialRows, initialTotal }: Props) {
+  const dialogs = useDialogs();
   const pathname = usePathname();
   const [tab, setTab] = useState<LeadsTab>(initialTab);
   const [peopleState, setPeopleState] = useState(freshPeople);
@@ -73,7 +87,14 @@ export default function LeadsClient({ initialTab, initialRows, initialTotal }: P
   const [showImport, setShowImport] = useState(false);
   const [showAddFromLinkedin, setShowAddFromLinkedin] = useState(false);
   const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [allMatchingSelected, setAllMatchingSelected] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const skipUrl = useRef<string | null>(requestUrl(initialTab, initialTab === "people" ? freshPeople() : freshCompanies()));
+
+  const clearSelection = () => { setSelectedIds(new Set()); setAllMatchingSelected(false); };
 
   const isPeople = tab === "people";
   const state = isPeople ? peopleState : companiesState;
@@ -113,6 +134,7 @@ export default function LeadsClient({ initialTab, initialRows, initialTotal }: P
     if (next === tab) return;
     setError("");
     setLoading(false);
+    clearSelection();
     if (next === "people") { setPeopleState(freshPeople()); setPeopleData(null); } else { setCompaniesState(freshCompanies()); setCompaniesData(null); }
     setTab(next);
     // Native history, which Next keeps in sync with useSearchParams: the tab
@@ -124,6 +146,7 @@ export default function LeadsClient({ initialTab, initialRows, initialTotal }: P
   const openCompany = (row: CompanyRow) => {
     setError("");
     setLoading(false);
+    clearSelection();
     setPeopleState({ ...freshPeople(), query: row.company.domain });
     setPeopleData(null);
     setTab("people");
@@ -131,6 +154,7 @@ export default function LeadsClient({ initialTab, initialRows, initialTotal }: P
   };
 
   const patch = useCallback((change: Partial<ListState<PeopleFilters | null>>) => {
+    clearSelection();
     if (isPeople) setPeopleState((current) => ({ ...current, ...change, filters: (change.filters ?? current.filters) as PeopleFilters, page: change.page ?? 0 }));
     else setCompaniesState((current) => ({ ...current, ...change, filters: null, page: change.page ?? 0 }));
   }, [isPeople]);
@@ -151,8 +175,116 @@ export default function LeadsClient({ initialTab, initialRows, initialTotal }: P
   const showEmpty = data !== null && !rowCount && !loading && !error;
   const refetch = () => setReloadToken((value) => value + 1);
 
+  const pageIds = isPeople ? (peopleData?.rows ?? []).map((row) => row.person.id) : [];
+  const allPageSelected = isAllPageSelected(selectedIds, pageIds);
+  const somePageSelected = isSomePageSelected(selectedIds, pageIds);
+
+  const handleSelectAllMatching = async () => {
+    setSelectingAll(true);
+    try {
+      const params = peopleFilterParams(peopleState);
+      const response = await fetch(`/api/leads/people/ids?${params}`);
+      const body = await response.json();
+      if (!body.ok) return;
+      setSelectedIds(new Set(body.ids as string[]));
+      setAllMatchingSelected(true);
+    } finally {
+      setSelectingAll(false);
+    }
+  };
+
+  /** After a delete removes `removedCount` rows from the current page, step back a page if it's now empty, otherwise just refetch. */
+  const afterPeopleDeleted = (removedCount: number) => {
+    if (peopleState.page > 0 && removedCount >= pageIds.length) {
+      setPeopleState((current) => ({ ...current, page: current.page - 1 }));
+    }
+    refetch();
+  };
+
+  const requestDeletePeople = async (ids: string[] | null) => {
+    const response = await fetch("/api/leads/people", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(ids ? { ids } : { matchFilters: true, filters: Object.fromEntries(peopleFilterParams(peopleState)) }),
+    });
+    const body = await response.json().catch(() => null);
+    if (!response.ok || !body?.ok) throw new Error(body?.error ?? "Unable to delete");
+  };
+
+  const handleDeletePerson = async (personId: string, name: string) => {
+    const ok = await dialogs.confirm({
+      title: "Delete this person?",
+      description: `${name} will be permanently deleted, along with all their campaign history, messages, and CRM records across every channel. This cannot be undone.`,
+      confirmLabel: "Delete person",
+      variant: "error",
+    });
+    if (!ok) return;
+    setDeletingId(personId);
+    try {
+      await requestDeletePeople([personId]);
+      setSelectedIds((prev) => { const next = new Set(prev); next.delete(personId); return next; });
+      afterPeopleDeleted(1);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to delete person");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const count = allMatchingSelected ? total : selectedIds.size;
+    if (count === 0) return;
+    const ok = await dialogs.confirm({
+      title: `Delete ${count.toLocaleString("en-US")} ${count === 1 ? "person" : "people"}?`,
+      description: "This permanently deletes each selected person, along with all their campaign history, messages, and CRM records across every channel. This cannot be undone.",
+      confirmLabel: "Delete people",
+      variant: "error",
+    });
+    if (!ok) return;
+    setBulkDeleting(true);
+    try {
+      await requestDeletePeople(allMatchingSelected ? null : [...selectedIds]);
+      clearSelection();
+      if (allMatchingSelected) { setPeopleState((current) => ({ ...current, page: 0 })); refetch(); }
+      else afterPeopleDeleted(selectedIds.size);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to delete people");
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   const table = isPeople
-    ? <PeopleTable rows={error ? [] : peopleData?.rows ?? null} sort={state.sort} direction={state.direction} onSort={onSort} loading={loading} />
+    ? (
+      <>
+        <PeopleBulkActionBar
+          selectedCount={allMatchingSelected ? total : selectedIds.size}
+          pageCount={pageIds.length}
+          totalCount={total}
+          allPageSelected={allPageSelected}
+          allMatchingSelected={allMatchingSelected}
+          onSelectAllMatching={handleSelectAllMatching}
+          onClear={clearSelection}
+          onDelete={handleBulkDelete}
+          deleting={bulkDeleting}
+          selectingAll={selectingAll}
+        />
+        <PeopleTable
+          rows={error ? [] : peopleData?.rows ?? null}
+          sort={state.sort}
+          direction={state.direction}
+          onSort={onSort}
+          loading={loading}
+          selectedIds={selectedIds}
+          onToggleRow={(id, checked) => { setAllMatchingSelected(false); setSelectedIds((prev) => toggleLeadSelection(prev, id, checked)); }}
+          onToggleAllOnPage={(checked) => { if (!checked) setAllMatchingSelected(false); setSelectedIds((prev) => toggleAllOnPage(prev, pageIds, checked)); }}
+          allPageSelected={allPageSelected}
+          somePageSelected={somePageSelected}
+          onDeletePerson={handleDeletePerson}
+          deletingId={deletingId}
+        />
+      </>
+    )
     : <CompaniesTable rows={error ? [] : companiesData?.rows ?? null} sort={state.sort} direction={state.direction} onSort={onSort} loading={loading} onOpen={openCompany} />;
 
   const tabs = [

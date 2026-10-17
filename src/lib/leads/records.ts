@@ -388,10 +388,10 @@ export async function campaignMemberships(personIds: string[]) {
   return memberships;
 }
 
-export async function listPeoplePage(input: PersonListInput = {}) {
-  const { limit, offset } = listBounds(input);
+/** Shared by listPeoplePage (paginated rows) and listPeopleIds (every matching id, for "select all matching"). */
+function peopleWhereConditions(input: PersonListInput) {
   const term = input.q?.trim() ? `%${input.q.trim()}%` : null;
-  const conditions = [
+  return [
     inOrg(people),
     term ? or(ilike(people.email, term), ilike(people.linkedinUrl, term), ilike(people.fullName, term), ilike(people.title, term), ilike(companies.name, term), ilike(companies.domain, term), sql`${people.raw}::text ilike ${term}`, sql`${people.custom}::text ilike ${term}`) : undefined,
     input.hasEmail === true ? sql`${people.email} is not null` : undefined,
@@ -413,6 +413,22 @@ export async function listPeoplePage(input: PersonListInput = {}) {
         .where(and(eq(crmRecords.personId, people.id), sql`${crmClassifications.acknowledgedAt} is null`)),
     ) : undefined,
   ].filter(Boolean);
+}
+
+/** Every Person id matching the same filters as listPeoplePage, for a "select all matching" bulk action. No pagination, id column only. */
+export async function listPeopleIds(input: Omit<PersonListInput, "limit" | "offset" | "sort" | "direction"> = {}): Promise<string[]> {
+  const conditions = peopleWhereConditions(input);
+  const rows = await db
+    .select({ id: people.id })
+    .from(people)
+    .leftJoin(companies, and(eq(people.companyId, companies.id), inOrg(companies)))
+    .where(and(...conditions));
+  return rows.map((row) => row.id);
+}
+
+export async function listPeoplePage(input: PersonListInput = {}) {
+  const { limit, offset } = listBounds(input);
+  const conditions = peopleWhereConditions(input);
   const where = conditions.length ? and(...conditions) : undefined;
   const sortColumn = {
     name: people.fullName,

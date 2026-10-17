@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { RiExternalLinkLine, RiFileCopyLine, RiMore2Line, RiPhoneLine, RiUserSearchLine } from "@remixicon/react";
+import { RiDeleteBinLine, RiExternalLinkLine, RiFileCopyLine, RiLoader4Line, RiMore2Line, RiPhoneLine, RiUserSearchLine } from "@remixicon/react";
 import * as Button from "@/components/alignui/button";
+import * as Checkbox from "@/components/alignui/checkbox";
 import * as Dropdown from "@/components/alignui/dropdown";
 import * as Table from "@/components/alignui/table";
 import * as Tooltip from "@/components/alignui/tooltip";
@@ -21,6 +22,7 @@ function SkeletonRow({ index }: { index: number }) {
   const narrow = ["w-16", "w-20", "w-14", "w-24"][index % 4];
   return (
     <Table.Row aria-hidden="true">
+      <Table.Cell className={rowCell} />
       <Table.Cell className={rowCell}><div className="flex items-center gap-3"><Blob className="size-8 rounded-full" /><div className="space-y-2"><Bar className={wide} /><Bar className={cn("h-2", narrow)} /></div></div></Table.Cell>
       <Table.Cell className={rowCell}><div className="flex items-center gap-3"><Blob className="size-7 rounded-lg" /><div className="space-y-2"><Bar className={narrow} /><Bar className="h-2 w-20" /></div></div></Table.Cell>
       <Table.Cell className={rowCell}><div className="flex gap-2.5">{[0, 1, 2].map((dot) => <Blob key={dot} className="size-4 rounded" />)}</div></Table.Cell>
@@ -31,7 +33,13 @@ function SkeletonRow({ index }: { index: number }) {
   );
 }
 
-function PersonTableRow({ row }: { row: PersonRow }) {
+function PersonTableRow({ row, selected, onToggle, onDelete, deleting }: {
+  row: PersonRow;
+  selected: boolean;
+  onToggle: (checked: boolean) => void;
+  onDelete: () => void;
+  deleting: boolean;
+}) {
   const router = useRouter();
   const { person, company, campaigns, crm } = row;
   const href = crm ? `/crm/records/${crm.recordId}` : null;
@@ -41,10 +49,14 @@ function PersonTableRow({ row }: { row: PersonRow }) {
     <Table.Row
       tabIndex={href ? 0 : undefined}
       aria-label={href ? `Open ${name}` : undefined}
+      aria-selected={selected}
       onClick={href ? () => router.push(href) : undefined}
       onKeyDown={href ? (event) => { if (event.target === event.currentTarget && event.key === "Enter") router.push(href); } : undefined}
-      className={cn("outline-none focus-visible:[&>td]:bg-bg-weak-50", href && "cursor-pointer")}
+      className={cn("outline-none focus-visible:[&>td]:bg-bg-weak-50", href && "cursor-pointer", selected && "[&>td]:bg-bg-weak-50", deleting && "pointer-events-none opacity-60")}
     >
+      <Table.Cell className={cn(rowCell, "pr-0")} onClick={stop} onKeyDown={stop}>
+        <Checkbox.Root aria-label={`Select ${name}`} checked={selected} onCheckedChange={(checked) => onToggle(checked === true)} />
+      </Table.Cell>
       <Table.Cell className={rowCell}>
         <div className="flex min-w-0 items-center gap-3">
           <ContactAvatar src={person.profilePictureUrl} fallback={initials(person.fullName)} className="size-8 bg-bg-weak-50 text-label-xs text-text-sub-600 ring-1 ring-inset ring-stroke-soft-200" />
@@ -70,14 +82,17 @@ function PersonTableRow({ row }: { row: PersonRow }) {
         <div className="flex justify-end">
           <Dropdown.Root>
             <Dropdown.Trigger asChild>
-              <Button.Root variant="neutral" mode="ghost" size="xsmall" aria-label={`More actions for ${name}`}><Button.Icon as={RiMore2Line} /></Button.Root>
+              <Button.Root variant="neutral" mode="ghost" size="xsmall" disabled={deleting} aria-label={`More actions for ${name}`}>
+                <Button.Icon as={deleting ? RiLoader4Line : RiMore2Line} className={cn(deleting && "animate-spin")} />
+              </Button.Root>
             </Dropdown.Trigger>
             <Dropdown.Content>
               {href && <Dropdown.Item onSelect={() => router.push(href)}><Dropdown.ItemIcon as={RiUserSearchLine} />Open CRM record</Dropdown.Item>}
               {person.linkedinUrl && <Dropdown.Item onSelect={() => window.open(linkedInPersonHref(person.linkedinUrl as string), "_blank", "noopener,noreferrer")}><Dropdown.ItemIcon as={RiExternalLinkLine} />Open LinkedIn profile</Dropdown.Item>}
               {person.email && <Dropdown.Item onSelect={() => void navigator.clipboard?.writeText(person.email as string)}><Dropdown.ItemIcon as={RiFileCopyLine} />Copy email</Dropdown.Item>}
               {person.phone && <Dropdown.Item onSelect={() => void navigator.clipboard?.writeText(person.phone as string)}><Dropdown.ItemIcon as={RiPhoneLine} />Copy phone</Dropdown.Item>}
-              {!href && !person.linkedinUrl && !person.email && !person.phone && <div className="p-2 text-paragraph-sm text-text-soft-400">No actions available</div>}
+              <Dropdown.Separator />
+              <Dropdown.Item destructive onSelect={onDelete}><Dropdown.ItemIcon as={RiDeleteBinLine} />Delete person</Dropdown.Item>
             </Dropdown.Content>
           </Dropdown.Root>
         </div>
@@ -86,12 +101,19 @@ function PersonTableRow({ row }: { row: PersonRow }) {
   );
 }
 
-export function PeopleTable({ rows, sort, direction, onSort, loading }: {
+export function PeopleTable({ rows, sort, direction, onSort, loading, selectedIds, onToggleRow, onToggleAllOnPage, allPageSelected, somePageSelected, onDeletePerson, deletingId }: {
   rows: PersonRow[] | null;
   sort: string;
   direction: Direction;
   onSort: (key: string) => void;
   loading: boolean;
+  selectedIds: Set<string>;
+  onToggleRow: (id: string, checked: boolean) => void;
+  onToggleAllOnPage: (checked: boolean) => void;
+  allPageSelected: boolean;
+  somePageSelected: boolean;
+  onDeletePerson: (personId: string, name: string) => void;
+  deletingId: string | null;
 }) {
   const head = { activeSort: sort, direction, onSort };
   return (
@@ -99,6 +121,13 @@ export function PeopleTable({ rows, sort, direction, onSort, loading }: {
       <Table.Root style={fixedTableStyle}>
         <Table.Header>
           <tr>
+            <Table.Head scope="col" className="w-10 px-4 py-2.5">
+              <Checkbox.Root
+                aria-label="Select all people on this page"
+                checked={allPageSelected ? true : somePageSelected ? "indeterminate" : false}
+                onCheckedChange={(checked) => onToggleAllOnPage(checked === true)}
+              />
+            </Table.Head>
             <SortableHead label="Name" sortKey="name" className="w-[21%]" {...head} />
             <SortableHead label="Company" sortKey="company" className="w-[18%]" {...head} />
             <SortableHead label="Reach" className="w-28" />
@@ -108,7 +137,16 @@ export function PeopleTable({ rows, sort, direction, onSort, loading }: {
           </tr>
         </Table.Header>
         <Table.Body spacing={4} className={cn("transition-opacity", loading && rows && "opacity-60")} aria-busy={loading}>
-          {rows === null ? Array.from({ length: 10 }, (_, index) => <SkeletonRow key={index} index={index} />) : rows.map((row) => <PersonTableRow key={row.person.id} row={row} />)}
+          {rows === null ? Array.from({ length: 10 }, (_, index) => <SkeletonRow key={index} index={index} />) : rows.map((row) => (
+            <PersonTableRow
+              key={row.person.id}
+              row={row}
+              selected={selectedIds.has(row.person.id)}
+              onToggle={(checked) => onToggleRow(row.person.id, checked)}
+              onDelete={() => onDeletePerson(row.person.id, row.person.fullName || "Unnamed person")}
+              deleting={deletingId === row.person.id}
+            />
+          ))}
         </Table.Body>
       </Table.Root>
     </Tooltip.Provider>

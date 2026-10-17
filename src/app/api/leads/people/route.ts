@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listPeoplePage } from "@/lib/leads/records";
+import { listPeoplePage, listPeopleIds } from "@/lib/leads/records";
+import { deletePeople } from "@/lib/leads/deletePeople";
 import { upsertManualPerson } from "@/lib/leads/manualImport";
 import { authContextErrorResponse, withOrgContext } from "@/lib/auth/context";
+import { parsePeopleFilters } from "./parseFilters";
 
 export async function GET(req: NextRequest) {
   try {
@@ -16,24 +18,14 @@ export async function GET(req: NextRequest) {
 async function listPeople(req: NextRequest) {
   const limit = Number(req.nextUrl.searchParams.get("limit") ?? 50);
   const offset = Number(req.nextUrl.searchParams.get("offset") ?? 0);
-  const campaignChannel = req.nextUrl.searchParams.get("campaignChannel");
   const sort = req.nextUrl.searchParams.get("sort");
   const direction = req.nextUrl.searchParams.get("direction");
-  const crmCategory = req.nextUrl.searchParams.get("crmCategory");
-  const crmWorkflowState = req.nextUrl.searchParams.get("crmWorkflowState");
   const result = await listPeoplePage({
-    q: req.nextUrl.searchParams.get("q") ?? undefined,
+    ...parsePeopleFilters(req.nextUrl.searchParams),
     limit,
     offset,
-    campaignChannel: campaignChannel === "email" || campaignChannel === "linkedin" || campaignChannel === "unassigned" ? campaignChannel : undefined,
-    hasEmail: req.nextUrl.searchParams.get("hasEmail") === "true" ? true : undefined,
-    hasLinkedin: req.nextUrl.searchParams.get("hasLinkedin") === "true" ? true : undefined,
     sort: sort === "name" || sort === "title" || sort === "email" || sort === "company" || sort === "updated" || sort === "created" ? sort : undefined,
     direction: direction === "asc" || direction === "desc" ? direction : undefined,
-    crmCategory: crmCategory === "customer" || crmCategory === "interested" || crmCategory === "not_interested" || crmCategory === "other" ? crmCategory : undefined,
-    crmWorkflowState: crmWorkflowState === "unclassified" || crmWorkflowState === "classifying" || crmWorkflowState === "action_required" || crmWorkflowState === "waiting" || crmWorkflowState === "idle" || crmWorkflowState === "paused" || crmWorkflowState === "closed" || crmWorkflowState === "error" ? crmWorkflowState : undefined,
-    crmSubcategoryId: req.nextUrl.searchParams.get("crmSubcategoryId") ?? undefined,
-    crmAiChange: req.nextUrl.searchParams.get("crmAiChange") === "true" ? true : undefined,
   });
   return NextResponse.json({ people: result.rows, total: result.total });
 }
@@ -66,5 +58,41 @@ async function createPerson(req: NextRequest) {
     return NextResponse.json(result, { status: result.created ? 201 : 200 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+  }
+}
+
+/** Bulk delete: `{ ids: string[] }`, or `{ matchFilters: true, filters: {...} }` for "select all N matching". */
+export async function DELETE(req: NextRequest) {
+  try {
+    return await withOrgContext(req, () => bulkDeletePeople(req));
+  } catch (error) {
+    const auth = authContextErrorResponse(error);
+    if (auth) return auth;
+    throw error;
+  }
+}
+
+async function bulkDeletePeople(req: NextRequest) {
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body !== "object") return NextResponse.json({ ok: false, error: "JSON body is required" }, { status: 400 });
+
+  try {
+    if (body.matchFilters === true) {
+      const filters = body.filters && typeof body.filters === "object" ? body.filters : {};
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(filters)) {
+        if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+      }
+      const ids = await listPeopleIds(parsePeopleFilters(params));
+      const deleted = await deletePeople(ids);
+      return NextResponse.json({ ok: true, deleted });
+    }
+
+    const ids = Array.isArray(body.ids) ? body.ids.filter((id: unknown): id is string => typeof id === "string" && id.length > 0) : [];
+    if (!ids.length) return NextResponse.json({ ok: false, error: "ids array or matchFilters required" }, { status: 400 });
+    const deleted = await deletePeople(ids);
+    return NextResponse.json({ ok: true, deleted });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }
