@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { campaigns, connections, leads, linkedInAccounts, webhookEvents } from "@/lib/linkedin/schema";
 import type { LeadStatus } from "@/lib/linkedin/schema";
@@ -152,6 +152,7 @@ async function handle(req: NextRequest, body: WebhookBody) {
     const isSender: boolean = body.is_sender === true;
     const attendees: Array<{
       attendee_name?: string | null;
+      attendee_profile_url?: string | null;
       attendee_provider_id?: string | null;
       attendee_specifics?: { occupation?: string | null } | null;
     }> = Array.isArray(body.attendees) ? body.attendees : [];
@@ -162,6 +163,7 @@ async function handle(req: NextRequest, body: WebhookBody) {
     let participantProviderId: string | undefined = senderProviderId;
     let participantName: string | null = body.sender?.attendee_name ?? null;
     let participantHeadline: string | null = body.sender?.attendee_specifics?.occupation ?? null;
+    let participantProfileUrl: string | null = body.sender?.attendee_profile_url ?? null;
     if (isSender) {
       const otherParticipant = attendees.find((a) => {
         const id = a?.attendee_provider_id;
@@ -176,6 +178,7 @@ async function handle(req: NextRequest, body: WebhookBody) {
         participantProviderId = otherParticipant.attendee_provider_id;
         participantName = otherParticipant.attendee_name ?? participantName;
         participantHeadline = otherParticipant.attendee_specifics?.occupation ?? participantHeadline;
+        participantProfileUrl = otherParticipant.attendee_profile_url ?? null;
         log.info(`is_sender=true detected — using counterparty providerId: ${participantProviderId}`);
       } else {
         // sender.* is our own LinkedIn account on echoed outbound messages.
@@ -256,7 +259,7 @@ async function handle(req: NextRequest, body: WebhookBody) {
         name: lead?.name ?? participantName,
         headline: lead?.headline ?? participantHeadline,
         profilePictureUrl: lead?.profilePictureUrl ?? null,
-        linkedinUrl: lead?.linkedinUrl ?? null,
+        linkedinUrl: lead?.linkedinUrl ?? participantProfileUrl,
         chatId: chatId ?? null,
         leadId: lead?.id ?? null,
         linkedinAccountId: account.id,
@@ -272,7 +275,8 @@ async function handle(req: NextRequest, body: WebhookBody) {
           chatId: chatId ?? undefined,
           name: lead?.name ?? participantName ?? undefined,
           headline: lead?.headline ?? participantHeadline ?? undefined,
-          linkedinUrl: lead?.linkedinUrl ?? undefined,
+          // Never replace a stored public slug with the attendee's member-id URL.
+          linkedinUrl: lead?.linkedinUrl ?? sql`COALESCE("Connection"."linkedinUrl", excluded."linkedinUrl")`,
           ...(lead && { profilePictureUrl: lead.profilePictureUrl, leadId: lead.id }),
           updatedAt: new Date(),
         },

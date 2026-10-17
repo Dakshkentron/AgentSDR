@@ -1,5 +1,6 @@
 "use client";
 
+import { linkedinProfileUrl } from "@/lib/leads/identity";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { Badge } from "@/components/linkedin/ui/badge";
 import { Button } from "@/components/linkedin/ui/button";
@@ -356,7 +357,7 @@ export function LeadsClient({ initialData }: { initialData: InitialData }) {
                       <Avatar src={lead.profilePictureUrl} name={lead.name ?? lead.linkedinUrl} />
                       <div className="min-w-0">
                         <a
-                          href={`https://www.linkedin.com/in/${lead.linkedinUrl}`}
+                          href={linkedinProfileUrl(lead.linkedinUrl) ?? undefined}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}

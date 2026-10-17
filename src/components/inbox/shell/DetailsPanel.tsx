@@ -1,5 +1,6 @@
 "use client";
 
+import { linkedinProfileUrl } from "@/lib/leads/identity";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ComponentType, type KeyboardEvent, type ReactNode } from "react";
 import {
@@ -324,6 +325,8 @@ export function relativeWhen(date: Date, now = Date.now()): string {
 }
 
 export function toLinkedinHref(value: string): string {
+  const profile = linkedinProfileUrl(value);
+  if (profile) return profile;
   if (/^https?:\/\//i.test(value)) return value;
   if (value.includes("linkedin.com")) return `https://${value.replace(/^\/+/, "")}`;
   return `https://www.linkedin.com/in/${value.replace(/^\/+|\/+$/g, "")}`;

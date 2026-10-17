@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  linkedinProfileUrl,
   inferCompanyDomainFromEmail,
   inferLinkedinApi,
   linkedinLookupIdentifier,
@@ -74,5 +75,15 @@ describe("canonical lead identities", () => {
   test("infers only business domains from email", () => {
     expect(inferCompanyDomainFromEmail("pat@acme.com")).toBe("acme.com");
     expect(inferCompanyDomainFromEmail("pat@gmail.com")).toBeNull();
+  });
+});
+
+describe("linkedinProfileUrl", () => {
+  test("canonicalises URLs, slugs and member ids, falling back in order", () => {
+    expect(linkedinProfileUrl("jngarvit07")).toBe("https://www.linkedin.com/in/jngarvit07/");
+    expect(linkedinProfileUrl("linkedin.com/in/jane-doe?x=1")).toBe("https://www.linkedin.com/in/jane-doe/");
+    expect(linkedinProfileUrl(null, "", "ACoAAAtuUW0AbCdEfGhIjKlMnOp")).toBe("https://www.linkedin.com/in/ACoAAAtuUW0AbCdEfGhIjKlMnOp/");
+    expect(linkedinProfileUrl("https://www.linkedin.com/sales/lead/x,y", "jane")).toBe("https://www.linkedin.com/in/jane/");
+    expect(linkedinProfileUrl("not a slug", undefined)).toBeNull();
   });
 });

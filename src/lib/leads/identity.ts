@@ -122,3 +122,21 @@ export function inferCompanyDomainFromEmail(value: string | null | undefined): s
   const domain = email?.split("@")[1] ?? null;
   return domain && !PUBLIC_EMAIL_DOMAINS.has(domain) ? domain : null;
 }
+
+/**
+ * A clickable https://www.linkedin.com/in/<x>/ for the first usable value:
+ * a full /in/ URL, a public slug, or a member id ("ACoAA…" — LinkedIn resolves
+ * those too). Case is kept: member ids are case-sensitive. Client-safe.
+ */
+export function linkedinProfileUrl(...values: (string | null | undefined)[]): string | null {
+  for (const value of values) {
+    const raw = value?.trim();
+    if (!raw) continue;
+    let id = raw.match(/linkedin\.com\/in\/([^/?#\s]+)/i)?.[1]
+      ?? (/^[\p{L}\p{N}%_-][\p{L}\p{N}%._-]*$/u.test(raw) ? raw : null);
+    if (!id) continue;
+    try { id = decodeURIComponent(id); } catch { /* keep as is */ }
+    return `https://www.linkedin.com/in/${encodeURIComponent(id)}/`;
+  }
+  return null;
+}

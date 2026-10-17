@@ -1,3 +1,4 @@
+import { linkedinProfileUrl } from "@/lib/leads/identity";
 import { count, desc, eq } from "drizzle-orm";
 import { requirePageOrgContext } from "@/lib/auth/context";
 import { inOrg, runInOrganization } from "@/lib/tenancy/scope";
@@ -123,9 +124,9 @@ export default async function ConnectionsPage({ searchParams }: Props) {
                                 className="size-9 bg-bg-weak-50 text-label-xs text-text-sub-600 ring-1 ring-inset ring-stroke-soft-200"
                               />
                               <div className="min-w-0">
-                                {conn.linkedinUrl ? (
+                                {linkedinProfileUrl(conn.linkedinUrl, conn.providerId) ? (
                                   <a
-                                    href={`https://www.linkedin.com/in/${conn.linkedinUrl}`}
+                                    href={linkedinProfileUrl(conn.linkedinUrl, conn.providerId) ?? undefined}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     title={displayName}

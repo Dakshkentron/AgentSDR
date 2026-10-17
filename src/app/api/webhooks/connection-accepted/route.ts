@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { campaigns, connections, leads, linkedInAccounts, webhookEvents } from "@/lib/linkedin/schema";
 import { getChatIdForUser } from "@/services/unipile.service";
@@ -220,7 +220,8 @@ async function handle(req: NextRequest, body: WebhookBody) {
           ...(chatId ? { chatId } : {}),
           name: lead?.name ?? senderName ?? undefined,
           profilePictureUrl: lead?.profilePictureUrl ?? profilePictureUrl ?? undefined,
-          linkedinUrl: lead?.linkedinUrl ?? linkedinUrl ?? undefined,
+          // Never replace a stored public slug with a member-id URL from the event.
+          linkedinUrl: lead?.linkedinUrl ?? sql`COALESCE("Connection"."linkedinUrl", excluded."linkedinUrl")`,
           ...(lead && { leadId: lead.id, headline: lead.headline ?? undefined }),
           updatedAt: new Date(),
         },

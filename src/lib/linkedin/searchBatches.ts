@@ -6,6 +6,7 @@
  *
  * Imports `db`, so client components may only `import type` from this file.
  */
+import { linkedinProfileUrl } from "@/lib/leads/identity";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import * as XLSX from "xlsx";
 import { db } from "@/lib/db";
@@ -89,12 +90,10 @@ export type SearchBatchDetail = {
  */
 function profileUrlFromRaw(raw: unknown, fallbackIdentifier: string): string | null {
   const r = (raw ?? {}) as Record<string, unknown>;
-  const direct = [r.public_profile_url, r.profile_url].find((v): v is string => typeof v === "string" && v.startsWith("http"));
-  if (direct) return direct;
-  const slug = typeof r.public_identifier === "string" && r.public_identifier ? r.public_identifier : null;
-  if (slug) return `https://www.linkedin.com/in/${slug}`;
-  // LinkedIn resolves a member id under /in/ too, so this still lands on the profile.
-  return fallbackIdentifier.startsWith("http") ? fallbackIdentifier : `https://www.linkedin.com/in/${fallbackIdentifier}`;
+  const str = (v: unknown) => (typeof v === "string" ? v : null);
+  // Public slug first; LinkedIn resolves a member id under /in/ too, so the fallbacks still land on the profile.
+  return linkedinProfileUrl(str(r.public_profile_url), str(r.public_identifier), str(r.profile_url), fallbackIdentifier)
+    ?? (fallbackIdentifier.startsWith("http") ? fallbackIdentifier : null);
 }
 
 /* -------------------------------------------------------------------------

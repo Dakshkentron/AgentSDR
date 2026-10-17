@@ -1,5 +1,6 @@
 "use client";
 
+import { linkedinProfileUrl } from "@/lib/leads/identity";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   RiAddLine,
@@ -611,7 +612,7 @@ export function CampaignLeadsTab({
                                         <div className="flex min-w-0 items-center gap-1.5">
                                           <span className="truncate text-label-sm text-text-strong-950" title={displayName}>{displayName}</span>
                                           <a
-                                            href={`https://www.linkedin.com/in/${lead.linkedinUrl}`}
+                                            href={linkedinProfileUrl(lead.linkedinUrl) ?? undefined}
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             onClick={(e) => e.stopPropagation()}
@@ -682,7 +683,7 @@ export function CampaignLeadsTab({
                                             <Dropdown.ItemIcon as={RiPencilLine} />
                                             View and edit messages
                                           </Dropdown.Item>
-                                          <Dropdown.Item onSelect={() => window.open(`https://www.linkedin.com/in/${lead.linkedinUrl}`, "_blank", "noopener,noreferrer")}>
+                                          <Dropdown.Item onSelect={() => window.open(linkedinProfileUrl(lead.linkedinUrl) ?? "", "_blank", "noopener,noreferrer")}>
                                             <Dropdown.ItemIcon as={RiExternalLinkLine} />
                                             Open on LinkedIn
                                           </Dropdown.Item>

@@ -1,5 +1,6 @@
 "use client";
 
+import { linkedinProfileUrl } from "@/lib/leads/identity";
 import { useEffect, useState } from "react";
 import {
   X,
@@ -409,11 +410,7 @@ export function LeadDetailPanel({
   if (!leadId) return null;
 
   const displayName = lead?.name ?? lead?.linkedinUrl ?? "Lead";
-  const profileUrl = lead
-    ? lead.linkedinUrl.startsWith("http")
-      ? lead.linkedinUrl
-      : `https://www.linkedin.com/in/${lead.linkedinUrl}`
-    : null;
+  const profileUrl = lead ? linkedinProfileUrl(lead.linkedinUrl) : null;
 
   const handleTemplatesSaved = (updated: LeadDetail) => {
     setLead(updated);

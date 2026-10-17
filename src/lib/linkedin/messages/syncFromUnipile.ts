@@ -132,7 +132,7 @@ export async function syncLinkedinMessages(options: { since?: Date } = {}): Prom
         })
         .onConflictDoUpdate({
           target: [connections.providerId, connections.linkedinAccountId],
-          set: { chatId: chat.id, updatedAt: now },
+          set: { chatId: chat.id, updatedAt: now, linkedinUrl: sql`COALESCE("Connection"."linkedinUrl", excluded."linkedinUrl")` },
         })
         .returning({ id: connections.id, leadId: connections.leadId });
 

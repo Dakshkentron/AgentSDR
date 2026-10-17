@@ -1,6 +1,7 @@
 "use client";
 /* eslint-disable react-hooks/set-state-in-effect */
 
+import { linkedinProfileUrl } from "@/lib/leads/identity";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   RiArrowDownSLine,
@@ -351,7 +352,7 @@ function RecordHeader({ back, data, person, name, avatarUrl, currentStep, active
   const linkedin = text(person.linkedinUrl);
   // Show the profile address the way the email address is shown, rather than a
   // "Profile" label that hides which account it points at.
-  const linkedinHref = linkedin.startsWith("http") ? linkedin : `https://www.linkedin.com/in/${linkedin}`;
+  const linkedinHref = linkedinProfileUrl(linkedin) ?? linkedin;
   const linkedinSlug = linkedin.replace(/\/+$/, "").split("/").pop() || linkedin;
   const state = WORKFLOW_BADGE[workflowState];
 

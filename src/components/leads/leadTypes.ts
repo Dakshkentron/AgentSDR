@@ -1,3 +1,4 @@
+import { linkedinProfileUrl } from "@/lib/leads/identity";
 export type Campaign = { id: string; name: string; channel: "email" | "linkedin"; status?: string };
 
 export type PersonRow = {
@@ -34,7 +35,7 @@ export function activeFilterCount(filters: PeopleFilters): number {
 
 export const PAGE_SIZE = 25;
 
-export const linkedInPersonHref = (value: string) => (value.startsWith("http") ? value : `https://www.linkedin.com/in/${value}`);
+export const linkedInPersonHref = (value: string) => linkedinProfileUrl(value) ?? value;
 export const linkedInCompanyHref = (value: string) => (value.startsWith("http") ? value : `https://www.linkedin.com/company/${value}`);
 export const initials = (value: string | null) => (value || "?").split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 export const dateLabel = (value: string | Date | null | undefined) => (value

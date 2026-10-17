@@ -59,7 +59,8 @@ import {
   type TriageTab,
 } from "@/components/inbox/shell/InboxShell";
 import { Bubble, ChatComposer, ComposerDock, ComposerDraftBanner, DaySeparator, ExpandableText, MessageCaption } from "@/components/inbox/shell/Conversation";
-import { ContactDetails, DetailsPanel, toLinkedinHref, useCrmRecordSummary, useDetailsPanel, workflowLabel } from "@/components/inbox/shell/DetailsPanel";
+import { linkedinProfileUrl } from "@/lib/leads/identity";
+import { ContactDetails, DetailsPanel, useCrmRecordSummary, useDetailsPanel, workflowLabel } from "@/components/inbox/shell/DetailsPanel";
 import { useInboxHotkeys } from "@/components/inbox/shell/hotkeys";
 import { cn } from "@/utils/cn";
 import type { ConnectionItem } from "@/lib/linkedin/messages/connectionList";
@@ -792,6 +793,7 @@ export function MessagesLayout({
   );
 
   const selectedName = selected ? displayName(selected) : "";
+  const selectedProfileUrl = selected ? linkedinProfileUrl(selected.linkedinUrl, record?.linkedinUrl, selected.providerId) : null;
   const senderLabel = selected?.linkedInAccountName ?? (selected?.linkedInAccountUsername ? `@${selected.linkedInAccountUsername}` : null);
 
   const detailsPanel = selected ? (
@@ -802,7 +804,7 @@ export function MessagesLayout({
         headline={selected.headline ?? record?.title}
         company={record?.company}
         channel="linkedin"
-        links={{ recordId, linkedinUrl: selected.linkedinUrl ?? record?.linkedinUrl, email: record?.email, phone: record?.phone }}
+        links={{ recordId, linkedinUrl: selectedProfileUrl ?? undefined, email: record?.email, phone: record?.phone }}
         crm={
           crmSummary
             ? {
@@ -985,6 +987,7 @@ export function MessagesLayout({
         ) : (
           withRecencyBreaks(connections, (conn) => (conn.lastMessage ? new Date(conn.lastMessage.createdAt) : null)).map(({ row: conn, heading }) => {
             const name = displayName(conn);
+            const profileUrl = linkedinProfileUrl(conn.linkedinUrl, conn.providerId);
             const hasUnseen = conn.unseenCount > 0;
             const last = conn.lastMessage ? new Date(conn.lastMessage.createdAt) : null;
             const drafted = conn.crm?.hasDraft === true;
@@ -1021,6 +1024,18 @@ export function MessagesLayout({
                     </>
                   }
                 />
+                {profileUrl && (
+                  <a
+                    href={profileUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`Open ${name} on LinkedIn`}
+                    title="Open LinkedIn profile"
+                    className="absolute bottom-2 right-24 rounded-md bg-bg-white-0 p-1 text-text-sub-600 opacity-0 shadow-regular-xs ring-1 ring-inset ring-stroke-soft-200 transition-opacity hover:text-text-strong-950 focus-visible:opacity-100 group-hover/row:opacity-100"
+                  >
+                    <RiExternalLinkLine className="size-3.5" />
+                  </a>
+                )}
                 <button
                   type="button"
                   onClick={() => void setRead(conn.id, hasUnseen)}
@@ -1048,7 +1063,15 @@ export function MessagesLayout({
             <ThreadHeader
               onBack={closeThread}
               avatar={<InboxAvatar name={selectedName} src={selected.profilePictureUrl} />}
-              title={selectedName}
+              title={
+                selectedProfileUrl ? (
+                  <a href={selectedProfileUrl} target="_blank" rel="noreferrer" title="Open LinkedIn profile" className="hover:underline">
+                    {selectedName}
+                  </a>
+                ) : (
+                  selectedName
+                )
+              }
               badges={
                 crmContext ? (
                   <CrmCategoryControl
@@ -1078,8 +1101,8 @@ export function MessagesLayout({
                       </Link>
                     </Button.Root>
                   )}
-                  {selected.linkedinUrl && (
-                    <HeaderAction icon={RiExternalLinkLine} label="LinkedIn profile" href={toLinkedinHref(selected.linkedinUrl)} external iconOnly />
+                  {selectedProfileUrl && (
+                    <HeaderAction icon={RiExternalLinkLine} label="LinkedIn profile" href={selectedProfileUrl} external iconOnly />
                   )}
                   <HeaderAction icon={RiMailUnreadLine} label="Mark unread" onClick={() => void setRead(selected.id, false)} />
                   <HeaderAction icon={RiLayoutRightLine} label={details.open ? "Hide details" : "Show details"} onClick={details.toggle} pressed={details.open} iconOnly />

@@ -1,5 +1,6 @@
 "use client";
 
+import { linkedinProfileUrl } from "@/lib/leads/identity";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { RiLoader4Line } from "@remixicon/react";
@@ -251,7 +252,11 @@ export default function AddPeopleToCampaignModal({
               {liveResults.map((r) => (
                 <div key={r.linkedinUrl} className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-bg-white-0">
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-label-sm text-text-strong-950">{r.name || r.linkedinUrl}</span>
+                    {linkedinProfileUrl(r.linkedinUrl) ? (
+                      <a href={linkedinProfileUrl(r.linkedinUrl) ?? undefined} target="_blank" rel="noreferrer" className="block truncate text-label-sm text-text-strong-950 hover:text-primary-base hover:underline">{r.name || r.linkedinUrl}</a>
+                    ) : (
+                      <span className="block truncate text-label-sm text-text-strong-950">{r.name || r.linkedinUrl}</span>
+                    )}
                     <span className="block truncate text-paragraph-xs text-text-sub-600">{[r.headline, r.company, r.location].filter(Boolean).join(" · ")}</span>
                   </span>
                   {networkBadge(r.networkDistance) && (
@@ -286,7 +291,12 @@ export default function AddPeopleToCampaignModal({
               <Checkbox.Root checked={selected.has(person.id)} onCheckedChange={() => setSelected((current) => toggle(current, person.id))} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-label-sm text-text-strong-950">{person.fullName || person.email || person.phone || person.linkedinUrl}</span>
-                <span className="block truncate text-paragraph-xs text-text-sub-600">{identity(person)}{company?.name ? ` · ${company.name}` : ""}</span>
+                <span className="block truncate text-paragraph-xs text-text-sub-600">
+                  {channel === "linkedin" && linkedinProfileUrl(person.linkedinUrl) ? (
+                    <a href={linkedinProfileUrl(person.linkedinUrl) ?? undefined} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className="hover:text-primary-base hover:underline">{identity(person)}</a>
+                  ) : identity(person)}
+                  {company?.name ? ` · ${company.name}` : ""}
+                </span>
               </span>
             </label>
           ))}
