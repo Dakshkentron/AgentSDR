@@ -14,7 +14,7 @@ import {
 import { resetLeadRetryCount } from "@/lib/linkedin/inviteRetry.server";
 import { logInviteSendDiagnostics } from "@/lib/linkedin/logInvitePipelineDiagnostics";
 import { pendingLeadsSendableByAccount } from "@/lib/linkedin/leadOutreachEligibility";
-import { sendConnectionRequest } from "@/services/unipile.service";
+import { isChatRefused, sendConnectionRequest } from "@/services/unipile.service";
 import { UnsuccessfulRequestError } from "unipile-node-sdk";
 import type { LinkedInAccount } from "@/lib/linkedin/schema";
 import { isPersonDoNotContact } from "@/lib/crm/policies";
@@ -40,6 +40,12 @@ const isAccountLimitError = (err: unknown): boolean => {
   return /weekly|invitation[_ ]?limit|limit[_ ](reached|exceeded)|quota[_ ](reached|exceeded)|exceeded[^.]*(limit|quota)|too many (invitations|requests)/i
     .test(extractApiErrorDetail(err.body));
 };
+
+/** LinkedIn's refusal code in words a user can act on. */
+const describeInviteRefusal = (detail: string): string =>
+  /CANT_RESEND_YET/.test(detail)
+    ? "LinkedIn won't allow a new invitation to this person yet (one was sent or withdrawn recently). Try again in a few weeks."
+    : `LinkedIn refused the invitation: ${detail.slice(0, 200)}`;
 
 const isAlreadyConnectedError = (err: unknown): boolean =>
   err instanceof UnsuccessfulRequestError
@@ -252,6 +258,15 @@ export const sendInvitations = async (account: LinkedInAccount): Promise<void> =
           .set({ limitReached: true })
           .where(and(inOrg(linkedInAccounts), eq(linkedInAccounts.id, account.id)));
         break;
+      } else if (isChatRefused(err)) {
+        // LinkedIn answered and refused (e.g. CANT_RESEND_YET): nothing was sent, so the lead must
+        // not read "Request sent". Fail it with LinkedIn's reason and drop the unsent claim.
+        const reason = describeInviteRefusal(extractApiErrorDetail((err as UnsuccessfulRequestError).body));
+        console.warn(`[sendInvitations] LinkedIn refused the invitation to ${lead.linkedinUrl}: ${reason}`);
+        await db.transaction(async (tx) => {
+          await tx.delete(messages).where(and(inOrg(messages), eq(messages.id, claimed.messageId!), sql`${messages.linkedinMessageId} is null`));
+          await tx.update(leads).set({ status: "FAILED", resolveLastError: reason }).where(and(inOrg(leads), eq(leads.id, lead.id)));
+        });
       } else {
         console.error(`[sendInvitations] Failed for ${lead.linkedinUrl}: ${serializeError(err)}`);
         // The provider may have accepted the invitation before the transport
