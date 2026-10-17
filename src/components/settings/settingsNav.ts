@@ -7,12 +7,10 @@ import {
   RiTeamLine,
   RiLayoutColumnLine,
   RiLinkedinBoxLine,
-  RiMailLine,
   RiPlugLine,
   RiPaletteLine,
   RiPriceTag3Line,
   RiQuillPenLine,
-  RiWhatsappLine,
   type RemixiconComponentType,
 } from "@remixicon/react";
 
@@ -42,19 +40,13 @@ export const SETTINGS_NAV: { label: string; items: SettingsNavItem[] }[] = [
   // Each channel is one row here; its pages — the connected accounts, the
   // integration it runs on, its sending rules (src/lib/channels/rules.ts) —
   // are tabs across the top of the section (SettingsShell).
+  //
+  // ponytail: Email and WhatsApp rows are hidden for now, matching the main
+  // nav and Analytics (same decision as d66f055) — their routes still exist
+  // and work, just not linked from here. Add their items back to re-enable.
   {
     label: "Channels",
     items: [
-      {
-        href: "/settings/email-accounts",
-        label: "Email",
-        icon: RiMailLine,
-        tabs: [
-          { href: "/settings/email-accounts", label: "Mailboxes", icon: RiMailLine },
-          { href: "/settings/email-connection", label: "Connection", icon: RiPlugLine },
-          { href: "/settings/email-rules", label: "Sending rules", icon: RiEqualizerLine },
-        ],
-      },
       {
         href: "/settings/linkedin-accounts",
         label: "LinkedIn",
@@ -63,16 +55,6 @@ export const SETTINGS_NAV: { label: string; items: SettingsNavItem[] }[] = [
           { href: "/settings/linkedin-accounts", label: "Accounts", icon: RiLinkedinBoxLine },
           { href: "/settings/linkedin-connection", label: "Connection", icon: RiPlugLine },
           { href: "/settings/linkedin-rules", label: "Sending rules", icon: RiEqualizerLine },
-        ],
-      },
-      {
-        href: "/settings/whatsapp-accounts",
-        label: "WhatsApp",
-        icon: RiWhatsappLine,
-        tabs: [
-          { href: "/settings/whatsapp-accounts", label: "Numbers", icon: RiWhatsappLine },
-          { href: "/settings/whatsapp-connection", label: "Integrations", icon: RiPlugLine },
-          { href: "/settings/whatsapp-rules", label: "Sending rules", icon: RiEqualizerLine },
         ],
       },
     ],

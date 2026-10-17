@@ -17,10 +17,15 @@ import { views, type ViewProps } from "./views";
  * mirrors ?view= and ?range= into the URL with history.replaceState.
  */
 
+// ponytail: Email and WhatsApp tabs hidden for now, matching the main nav and
+// Settings (same decision as d66f055) — the views and their data still exist,
+// just not linked from here. Drop the filter to re-enable.
+const HIDDEN_ANALYTICS_CHANNELS: AnalyticsView[] = ["email", "whatsapp"];
+
 /** Channel tabs carry their channel's icon and colour; Overview a neutral one. */
 const VIEW_TABS: Array<{ view: AnalyticsView; label: string; icon: ComponentType<{ className?: string }>; color?: string }> = [
   { view: "overview", label: "Overview", icon: RiDashboard3Line },
-  ...ANALYTICS_CHANNELS.map((channel) => ({ view: channel, label: CHANNEL_META[channel].label, icon: CHANNEL_META[channel].icon, color: CHANNEL_META[channel].color })),
+  ...ANALYTICS_CHANNELS.filter((channel) => !HIDDEN_ANALYTICS_CHANNELS.includes(channel)).map((channel) => ({ view: channel, label: CHANNEL_META[channel].label, icon: CHANNEL_META[channel].icon, color: CHANNEL_META[channel].color })),
 ];
 
 /** "tz|YYYY-MM-DD" in the browser, or null on the server (avoids a hydration mismatch). */
