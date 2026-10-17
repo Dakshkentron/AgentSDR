@@ -23,6 +23,7 @@ import * as AlignButton from "@/components/alignui/button";
 import * as Dropdown from "@/components/alignui/dropdown";
 import * as Input from "@/components/alignui/input";
 import * as Modal from "@/components/alignui/modal";
+import * as Textarea from "@/components/alignui/textarea";
 import * as Table from "@/components/alignui/table";
 import { CapacityMeter } from "@/components/analytics/kit/CapacityMeter";
 import { Frame, FrameHeader, FramePanel } from "@/components/analytics/kit/Frame";
@@ -304,6 +305,8 @@ export function SearchBatchesClient({
   const csvAccountIds = useMemo(() => new Set(csvAccountOrder), [csvAccountOrder]);
   const csvFileRef = useRef<HTMLInputElement>(null);
   const [csvFileName, setCsvFileName] = useState<string | null>(null);
+  const [bulkMode, setBulkMode] = useState<"file" | "paste">("file");
+  const [bulkPasteText, setBulkPasteText] = useState("");
 
   const resetNewDialog = () => {
     setStep(1);
@@ -316,6 +319,8 @@ export function SearchBatchesClient({
     setCsvName("");
     setCsvAccountOrder([]);
     setCsvFileName(null);
+    setBulkMode("file");
+    setBulkPasteText("");
     if (csvFileRef.current) csvFileRef.current.value = "";
   };
 
@@ -390,6 +395,45 @@ export function SearchBatchesClient({
       formData.append("name", csvName.trim());
       formData.append("accountIds", JSON.stringify(ids));
       const res = await fetch("/api/linkedin/search/batches/upload", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!data.ok) {
+        setCreateError(typeof data.error === "string" ? data.error : "Failed to create search");
+        return;
+      }
+      setNewOpen(false);
+      router.push(`/linkedin/search/${data.id}`);
+    } catch {
+      setCreateError("Network error");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleCreatePaste = async () => {
+    if (!csvName.trim()) {
+      setCreateError("Name is required");
+      return;
+    }
+    // One URL, profile link, or plain name per line — the server sorts out which is which.
+    const urls = bulkPasteText
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((url) => ({ url }));
+    if (urls.length === 0) {
+      setCreateError("Paste at least one URL, profile link, or name — one per line");
+      return;
+    }
+    const ids = csvAccountOrder;
+    setCreating(true);
+    setCreateError(null);
+    try {
+      storeRunAccountIds(ids);
+      const res = await fetch("/api/linkedin/search/batches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: csvName.trim(), kind: "BULK", urls, accountIds: ids }),
+      });
       const data = await res.json();
       if (!data.ok) {
         setCreateError(typeof data.error === "string" ? data.error : "Failed to create search");
@@ -596,27 +640,59 @@ export function SearchBatchesClient({
               <Field label="Name" htmlFor="csv-name">
                 <TextField id="csv-name" value={csvName} onChange={setCsvName} placeholder="e.g. Q3 target account list" autoFocus />
               </Field>
-              <Field label="Sheet (Company Name + Search URL)">
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    ref={csvFileRef}
-                    type="file"
-                    accept=".xlsx,.xls,.csv"
-                    className="hidden"
-                    onChange={(e) => setCsvFileName(e.target.files?.[0]?.name ?? null)}
+              <div className="flex gap-2">
+                <AlignButton.Root
+                  type="button"
+                  variant="neutral"
+                  mode={bulkMode === "file" ? "filled" : "stroke"}
+                  size="xsmall"
+                  onClick={() => setBulkMode("file")}
+                >
+                  Upload sheet
+                </AlignButton.Root>
+                <AlignButton.Root
+                  type="button"
+                  variant="neutral"
+                  mode={bulkMode === "paste" ? "filled" : "stroke"}
+                  size="xsmall"
+                  onClick={() => setBulkMode("paste")}
+                >
+                  Paste URLs
+                </AlignButton.Root>
+              </div>
+              {bulkMode === "file" ? (
+                <Field label="Sheet (Company Name + Search URL)">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      ref={csvFileRef}
+                      type="file"
+                      accept=".xlsx,.xls,.csv"
+                      className="hidden"
+                      onChange={(e) => setCsvFileName(e.target.files?.[0]?.name ?? null)}
+                    />
+                    <AlignButton.Root type="button" variant="neutral" mode="stroke" size="xsmall" onClick={() => csvFileRef.current?.click()} className="max-w-full">
+                      <AlignButton.Icon as={RiUploadCloud2Line} />
+                      <span className="truncate">{csvFileName ?? "Choose file"}</span>
+                    </AlignButton.Root>
+                    <AlignButton.Root variant="neutral" mode="ghost" size="xsmall" asChild>
+                      <a href="/api/linkedin/search/queue/template" download="search-queue-template.xlsx">
+                        <AlignButton.Icon as={RiDownloadLine} />
+                        Download template
+                      </a>
+                    </AlignButton.Root>
+                  </div>
+                </Field>
+              ) : (
+                <Field label="LinkedIn profile URLs, search URLs, or names — one per line">
+                  <Textarea.Root
+                    simple
+                    rows={6}
+                    value={bulkPasteText}
+                    onChange={(e) => setBulkPasteText(e.target.value)}
+                    placeholder={"linkedin.com/in/jane-doe\nlinkedin.com/in/john-smith\nvp sales pune"}
                   />
-                  <AlignButton.Root type="button" variant="neutral" mode="stroke" size="xsmall" onClick={() => csvFileRef.current?.click()} className="max-w-full">
-                    <AlignButton.Icon as={RiUploadCloud2Line} />
-                    <span className="truncate">{csvFileName ?? "Choose file"}</span>
-                  </AlignButton.Root>
-                  <AlignButton.Root variant="neutral" mode="ghost" size="xsmall" asChild>
-                    <a href="/api/linkedin/search/queue/template" download="search-queue-template.xlsx">
-                      <AlignButton.Icon as={RiDownloadLine} />
-                      Download template
-                    </a>
-                  </AlignButton.Root>
-                </div>
-              </Field>
+                </Field>
+              )}
               <Field label="Accounts">
                 <div className="rounded-xl p-2 ring-1 ring-inset ring-stroke-soft-200">
                   <SearchAccountPicker
@@ -649,7 +725,7 @@ export function SearchBatchesClient({
                   variant="primary"
                   mode="filled"
                   size="small"
-                  onClick={kind === "SINGLE" ? handleCreateSingle : handleCreateCsv}
+                  onClick={kind === "SINGLE" ? handleCreateSingle : bulkMode === "paste" ? handleCreatePaste : handleCreateCsv}
                   disabled={creating || (kind === "BULK" && csvAccountIds.size === 0)}
                 >
                   <AlignButton.Icon as={creating ? RiLoader4Line : RiCheckLine} className={cn(creating && "animate-spin")} />

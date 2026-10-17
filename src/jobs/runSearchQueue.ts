@@ -2,7 +2,7 @@ import { isPlatformConnected } from "@/lib/platform/credentials";
 import { and, asc, eq, inArray, ne, count as sqlCount } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { jobRuns, linkedInAccounts, searchBatches, searchQueries, searchResults } from "@/lib/linkedin/schema";
-import { searchLinkedIn } from "@/services/unipile.service";
+import { getProfile, searchLinkedIn } from "@/services/unipile.service";
 import { inferLinkedinApi, normalizeLinkedinSourceIdentifier, type LinkedinApiHint } from "@/lib/leads/identity";
 import { getSearchUsage } from "@/lib/linkedin/searchLeadLimit";
 import { incrementSearchLeadsToday } from "@/lib/linkedin/searchLeadLimit.server";
@@ -57,6 +57,58 @@ const mapResults = (searchQueryId: string, items: RawItem[], sourceLinkedinApi: 
       };
     })
     .filter((r): r is NonNullable<typeof r> => r !== null);
+
+// A pasted single-profile link ("linkedin.com/in/jane-doe"), not a search-results URL —
+// Unipile's search endpoint returns nothing for one of these, so it needs the profile
+// lookup endpoint instead. toSearchUrl() already turns any bare name/keywords into a
+// real .../search/results/people/?keywords= URL before a query reaches this file, so
+// the only way `url` lands here matching this is a URL the user pasted directly.
+const PROFILE_URL_RE = /linkedin\.com\/in\/[^/?#]+/i;
+const isProfileUrl = (url: string) => PROFILE_URL_RE.test(url);
+
+const runProfileLookupQuery = async (
+  queryId: string,
+  url: string,
+  account: LinkedInAccount,
+  pool: AccountPool
+): Promise<void> => {
+  try {
+    const profile = await getProfile(url, account.linkedinId);
+    const raw = profile.leadData as Record<string, unknown>;
+    await db
+      .insert(searchResults)
+      .values({
+        searchQueryId: queryId,
+        linkedinUrl: profile.providerId,
+        sourceLinkedinApi: null,
+        name: [profile.firstName, profile.lastName].filter(Boolean).join(" ") || null,
+        headline: profile.headline || null,
+        location: profile.location,
+        profilePictureUrl: profile.profilePictureUrl,
+        networkDistance: typeof raw.network_distance === "string" ? raw.network_distance : null,
+        followersCount: null,
+        sharedConnectionsCount: null,
+        raw: JSON.parse(JSON.stringify(raw)),
+      })
+      .onConflictDoNothing();
+
+    const usage = await incrementSearchLeadsToday(account.linkedinId, 1);
+    recordUsage(pool, account.id, usage.used);
+    await db
+      .update(searchQueries)
+      .set({ status: "COMPLETED", completedAt: new Date(), leadsFetched: 1, totalCount: 1, cursor: null })
+      .where(eq(searchQueries.id, queryId));
+    console.log(`[runSearchQueue] "${url}" resolved as a single profile`);
+  } catch (err) {
+    console.error(`[runSearchQueue] Profile lookup failed for "${url}": ${serializeError(err)}`);
+    await db
+      .update(searchQueries)
+      .set({ status: "FAILED", lastError: serializeError(err) })
+      .where(eq(searchQueries.id, queryId));
+  } finally {
+    releaseAccount(pool, account.id);
+  }
+};
 
 const getStatus = async (queryId: string): Promise<SearchQueryStatus | null> => {
   const [row] = await db
@@ -280,6 +332,11 @@ const processQuery = async (query: SearchQuery, pool: AccountPool): Promise<void
       cursor: resumeCursor,
     })
     .where(eq(searchQueries.id, query.id));
+
+  if (isProfileUrl(query.url)) {
+    await runProfileLookupQuery(query.id, query.url, account, pool);
+    return;
+  }
 
   await runOneQuery(query.id, query.url, account, pool, resumeCursor);
 };
