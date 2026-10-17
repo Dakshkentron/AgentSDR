@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, FileSpreadsheet, Loader2, Rocket, Search, Users } from "lucide-react";
+import { ArrowLeft, ArrowRight, FileSpreadsheet, Loader2, Rocket, Search, Trash2, Users } from "lucide-react";
 import { RiCheckLine, RiDraftLine, RiStackLine, RiTeamLine } from "@remixicon/react";
 import * as AlignButton from "@/components/alignui/button";
 import * as Checkbox from "@/components/alignui/checkbox";
@@ -17,9 +17,11 @@ import { Frame, FrameHeader, FramePanel } from "@/components/analytics/kit/Frame
 import { DocsLink } from "@/components/page/DocsLink";
 import { PageHeader } from "@/components/page/PageHeader";
 import { EMPTY_LINKEDIN_SEQUENCE, type LinkedinCampaignSequence } from "@/lib/linkedin/campaignSequence";
+import type { SearchBatchLeadRow } from "@/lib/linkedin/searchBatches";
 import { cn } from "@/utils/cn";
 
 type Account = { id: string; username: string; name: string | null; profilePictureUrl: string | null };
+type SearchLead = Pick<SearchBatchLeadRow, "id" | "linkedinUrl" | "sourceLinkedinApi" | "name" | "headline" | "location">;
 
 const STEPS = [
   { id: "setup", label: "Campaign details", hint: "Name and senders", icon: RiDraftLine },
@@ -65,7 +67,9 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
   const [searchUrlInput, setSearchUrlInput] = useState("");
   const [searchBusy, setSearchBusy] = useState(false);
   const [activeSearch, setActiveSearch] = useState<{ id: string; status: string; leadsFetched: number } | null>(null);
-  const [searchLeads, setSearchLeads] = useState<{ id: string; name: string | null; headline: string | null }[]>([]);
+  const [searchLeads, setSearchLeads] = useState<SearchLead[]>([]);
+  const [removedLeadIds, setRemovedLeadIds] = useState<Set<string>>(new Set());
+  const [addedLeadIds, setAddedLeadIds] = useState<Set<string>>(new Set());
 
   async function startSearch() {
     if (!campaignId || !searchUrlInput.trim()) return;
@@ -87,6 +91,8 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
       if (!response.ok || !data?.ok) throw new Error(data?.error || "Could not start that search");
       setActiveSearch({ id: data.id, status: "RUNNING", leadsFetched: 0 });
       setSearchLeads([]);
+      setRemovedLeadIds(new Set());
+      setAddedLeadIds(new Set());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -100,36 +106,50 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
   // background, and re-clicking Add later pulls in whatever's turned up since.
   useEffect(() => {
     if (!activeSearch || ["COMPLETED", "FAILED"].includes(activeSearch.status)) return;
-    const interval = setInterval(async () => {
+    let cancelled = false;
+    const poll = async () => {
       const response = await fetch(`/api/linkedin/search/batches/${activeSearch.id}`);
       const data = await response.json().catch(() => null);
       const query = data?.detail?.queries?.[0];
-      if (!query) return;
+      if (cancelled || !query) return;
       setActiveSearch((current) => current && { ...current, status: query.status, leadsFetched: query.leadsFetched ?? 0 });
-      const leads = (data?.detail?.leads ?? []) as { id: string; name: string | null; headline: string | null }[];
-      setSearchLeads(leads);
-    }, 3000);
-    return () => clearInterval(interval);
+      setSearchLeads((data?.detail?.leads ?? []) as SearchLead[]);
+    };
+    // First check right away rather than after a blank 3 s, then keep checking.
+    void poll();
+    const interval = setInterval(() => void poll(), 3000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, [activeSearch?.id, activeSearch?.status]);
 
+  const pendingSearchLeads = searchLeads.filter((lead) => !removedLeadIds.has(lead.id) && !addedLeadIds.has(lead.id));
+
   async function addFromSearch() {
-    if (!campaignId || !activeSearch) return;
+    if (!campaignId || pendingSearchLeads.length === 0) return;
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(`/api/linkedin/campaigns/${campaignId}/from-search`, {
+      // Only the people still in the list — anyone removed with × stays out.
+      const response = await fetch(`/api/linkedin/campaigns/${campaignId}/from-lookup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ batchId: activeSearch.id }),
+        body: JSON.stringify({
+          rows: pendingSearchLeads.map((lead) => ({
+            linkedinUrl: lead.linkedinUrl,
+            sourceLinkedinApi: lead.sourceLinkedinApi,
+            name: lead.name,
+            headline: lead.headline,
+            location: lead.location,
+          })),
+        }),
       });
       const result = await response.json().catch(() => null);
       if (!response.ok || !result?.ok) throw new Error(result?.error || "Could not add leads from the search");
       const added = Number(result.created ?? 0) + Number(result.attached ?? 0);
       setLeadCount((current) => current + added);
+      setAddedLeadIds((current) => new Set([...current, ...pendingSearchLeads.map((lead) => lead.id)]));
       setImportSummary(`${added} added from LinkedIn search${Number(result.skipped ?? 0) ? ` · ${Number(result.skipped)} already enrolled` : ""}${Number(result.failed ?? 0) ? ` · ${Number(result.failed)} failed` : ""}`);
-      // Left open on purpose: the search may still be paging in more results, and
-      // this same Add button is safe to click again later — already-added leads
-      // are skipped, not duplicated.
+      // Left open on purpose: the search may still be paging in more results;
+      // anyone found later shows up in the list and can be added the same way.
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -141,6 +161,8 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
     setShowSearch(false);
     setActiveSearch(null);
     setSearchLeads([]);
+    setRemovedLeadIds(new Set());
+    setAddedLeadIds(new Set());
     setSearchUrlInput("");
   }
 
@@ -370,17 +392,20 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
                     ) : (
                       <>
                         <div className="flex flex-wrap items-center justify-between gap-3">
-                          <p className="text-paragraph-sm text-text-sub-600">
+                          <p className="flex items-center gap-2 text-paragraph-sm text-text-sub-600">
+                            {(activeSearch.status === "RUNNING" || activeSearch.status === "QUEUED") && <Loader2 className="size-4 animate-spin" />}
                             {activeSearch.status === "RUNNING" || activeSearch.status === "QUEUED"
-                              ? `Fetching… ${activeSearch.leadsFetched.toLocaleString()} found so far`
+                              ? `Fetching from LinkedIn… ${activeSearch.leadsFetched.toLocaleString()} found so far`
                               : activeSearch.status === "PAUSED_LIMIT"
-                                ? `${activeSearch.leadsFetched.toLocaleString()} found — paused, daily search quota reached`
-                                : `${activeSearch.leadsFetched.toLocaleString()} found`}
+                                ? `${activeSearch.leadsFetched.toLocaleString()} found — stopped, today's search limit is used up`
+                                : activeSearch.status === "FAILED"
+                                  ? "The search failed — check the URL and try again"
+                                  : `${activeSearch.leadsFetched.toLocaleString()} found`}
                           </p>
                           <div className="flex gap-2">
-                            <AlignButton.Root variant="primary" mode="filled" size="small" onClick={() => void addFromSearch()} disabled={busy || activeSearch.leadsFetched === 0}>
+                            <AlignButton.Root variant="primary" mode="filled" size="small" onClick={() => void addFromSearch()} disabled={busy || pendingSearchLeads.length === 0}>
                               {busy && <AlignButton.Icon as={Loader2} className="animate-spin" />}
-                              {busy ? "Adding…" : `Add all ${activeSearch.leadsFetched.toLocaleString()} found so far`}
+                              {busy ? "Adding…" : `Add ${pendingSearchLeads.length.toLocaleString()} ${pendingSearchLeads.length === 1 ? "lead" : "leads"}`}
                             </AlignButton.Root>
                             <AlignButton.Root variant="neutral" mode="stroke" size="small" onClick={closeSearchPanel}>
                               Done
@@ -388,20 +413,38 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
                           </div>
                         </div>
                         {searchLeads.length > 0 && (
-                          <ul className="mt-3 max-h-56 divide-y divide-stroke-soft-200 overflow-y-auto rounded-lg ring-1 ring-inset ring-stroke-soft-200">
-                            {searchLeads.map((lead) => (
-                              <li key={lead.id} className="px-3 py-2 text-paragraph-sm">
-                                <span className="block truncate text-text-strong-950">{lead.name || "(name not resolved yet)"}</span>
-                                {lead.headline && <span className="block truncate text-paragraph-xs text-text-sub-600">{lead.headline}</span>}
-                              </li>
-                            ))}
+                          <ul className="mt-3 max-h-72 divide-y divide-stroke-soft-200 overflow-y-auto rounded-lg ring-1 ring-inset ring-stroke-soft-200">
+                            {searchLeads.map((lead) => {
+                              const removed = removedLeadIds.has(lead.id);
+                              const added = addedLeadIds.has(lead.id);
+                              return (
+                                <li key={lead.id} className={cn("flex items-center gap-3 px-3 py-2 text-paragraph-sm", removed && "opacity-50")}>
+                                  <span className="min-w-0 flex-1">
+                                    <span className={cn("block truncate text-text-strong-950", removed && "line-through")}>{lead.name || "(name not resolved yet)"}</span>
+                                    {lead.headline && <span className="block truncate text-paragraph-xs text-text-sub-600">{lead.headline}</span>}
+                                  </span>
+                                  {added ? (
+                                    <span className="shrink-0 text-label-xs text-success-base">Added</span>
+                                  ) : removed ? (
+                                    <AlignButton.Root variant="neutral" mode="ghost" size="xsmall" onClick={() => setRemovedLeadIds((current) => { const next = new Set(current); next.delete(lead.id); return next; })}>
+                                      Undo
+                                    </AlignButton.Root>
+                                  ) : (
+                                    <AlignButton.Root variant="error" mode="ghost" size="xsmall" aria-label={`Remove ${lead.name ?? "this lead"}`} onClick={() => setRemovedLeadIds((current) => new Set([...current, lead.id]))}>
+                                      <AlignButton.Icon as={Trash2} />
+                                      Remove
+                                    </AlignButton.Root>
+                                  )}
+                                </li>
+                              );
+                            })}
                           </ul>
                         )}
-                        {(activeSearch.status === "RUNNING" || activeSearch.status === "QUEUED") && (
-                          <p className="mt-2 text-paragraph-xs text-text-soft-400">
-                            Still paging through results — click Add again any time to bring in whatever's turned up since.
-                          </p>
-                        )}
+                        <p className="mt-2 text-paragraph-xs text-text-soft-400">
+                          {(activeSearch.status === "RUNNING" || activeSearch.status === "QUEUED")
+                            ? "LinkedIn returns about 10 people a page, so this list grows as more pages load. Remove anyone you don't want, then Add — you can Add again as more come in."
+                            : "Remove anyone you don't want, then Add."}
+                        </p>
                       </>
                     )}
                   </div>

@@ -29,7 +29,17 @@ export async function POST(req: NextRequest) {
       const dailyLimit = (await channelRules("linkedin")).searchLeadsPerDay;
       const accounts = await db.select().from(linkedInAccounts).where(and(inOrg(linkedInAccounts), eq(linkedInAccounts.status, "CONNECTED")));
       const account = accounts.find((a) => !getSearchUsage(a.searchLeadsToday, dailyLimit).limitReached);
-      if (!account) return NextResponse.json({ ok: false, error: "No connected LinkedIn account with search quota left today" }, { status: 409 });
+      if (!account) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: accounts.length === 0
+              ? "No connected LinkedIn account — connect one in Settings → LinkedIn"
+              : `Today's LinkedIn search limit (${dailyLimit} leads per account) is used up. It resets tomorrow, or raise it in Settings → LinkedIn → Sending rules. Pasting a profile URL still works.`,
+          },
+          { status: 409 }
+        );
+      }
 
       const url = toSearchUrl(query);
       let result;

@@ -4,15 +4,12 @@ import { withLinkedinOrg } from "@/lib/linkedin/organizations.server";
 import { db } from "@/lib/db";
 import { inOrg } from "@/lib/tenancy/scope";
 import { campaigns, campaignAccounts, linkedInAccounts } from "@/lib/linkedin/schema";
-import { getSearchUsage } from "@/lib/linkedin/searchLeadLimit";
-import { incrementSearchLeadsToday } from "@/lib/linkedin/searchLeadLimit.server";
-import { channelRules } from "@/lib/channels/rules.server";
 import { getProfile } from "@/services/unipile.service";
 import { importLeadRows, mapSpreadsheetRowsWithMapping, suggestedLinkedinMapping } from "@/lib/linkedin/importLeads";
 import { buildImportLeadsJsonResponse } from "@/lib/linkedin/importLeadsResponse";
 import { serializeError } from "@/lib/linkedin/serializeError";
 
-type LiveRow = { linkedinUrl: string; name?: string | null; headline?: string | null; location?: string | null };
+type LiveRow = { linkedinUrl: string; sourceLinkedinApi?: string | null; name?: string | null; headline?: string | null; location?: string | null };
 
 /**
  * POST /api/linkedin/campaigns/:id/from-lookup — adds leads AgentSDR hasn't
@@ -35,33 +32,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       let sheetRows: Record<string, string>[];
 
       if (url) {
-        const dailyLimit = (await channelRules("linkedin")).searchLeadsPerDay;
         // Prefer a sender already assigned to this campaign, but a campaign mid-setup
         // (like one still on "Add leads") may have none yet — any connected account
-        // in the org can resolve a profile lookup just as well.
+        // in the org can resolve a profile lookup just as well. One profile view is
+        // not a search, so the daily search-leads quota doesn't gate it (the same
+        // as resolveProfiles, which opens profiles without touching that counter).
         const campaignSenders = await db
           .select({ account: linkedInAccounts })
           .from(campaignAccounts)
           .innerJoin(linkedInAccounts, eq(linkedInAccounts.id, campaignAccounts.linkedinAccountId))
           .where(and(eq(campaignAccounts.campaignId, campaignId), eq(linkedInAccounts.status, "CONNECTED")));
-        const orgAccounts = campaignSenders.length > 0
+        const [account] = campaignSenders.length > 0
           ? campaignSenders.map((s) => s.account)
           : await db.select().from(linkedInAccounts).where(and(inOrg(linkedInAccounts), eq(linkedInAccounts.status, "CONNECTED")));
-        const account = orgAccounts.find((a) => !getSearchUsage(a.searchLeadsToday, dailyLimit).limitReached);
         if (!account) {
-          return NextResponse.json(
-            { ok: false, error: orgAccounts.length === 0 ? "No connected LinkedIn account — connect one in Settings" : "No connected account has search quota left today" },
-            { status: 409 }
-          );
+          return NextResponse.json({ ok: false, error: "No connected LinkedIn account — connect one in Settings → LinkedIn" }, { status: 409 });
         }
 
         let profile;
         try {
           profile = await getProfile(url, account.linkedinId);
         } catch (err) {
-          return NextResponse.json({ ok: false, error: `Could not resolve that profile: ${serializeError(err)}` }, { status: 400 });
+          return NextResponse.json({ ok: false, error: `Could not find that LinkedIn profile: ${serializeError(err)}` }, { status: 400 });
         }
-        await incrementSearchLeadsToday(account.linkedinId, 1);
 
         sheetRows = [{
           "LinkedIn URL": profile.publicIdentifier ?? profile.providerId,
@@ -74,6 +67,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           .filter((r) => r.linkedinUrl)
           .map((r) => ({
             "LinkedIn URL": r.linkedinUrl,
+            "LinkedIn API": r.sourceLinkedinApi ?? "",
             Name: r.name ?? "",
             Headline: r.headline ?? "",
             Location: r.location ?? "",

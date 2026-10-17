@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { RiLoader4Line } from "@remixicon/react";
+import * as Button from "@/components/alignui/button";
+import * as Checkbox from "@/components/alignui/checkbox";
+import * as Input from "@/components/alignui/input";
 
 type PersonRow = {
   person: { id: string; email: string | null; linkedinUrl: string | null; phone?: string | null; fullName: string | null; title: string | null };
@@ -183,100 +187,97 @@ export default function AddPeopleToCampaignModal({
 
   const identity = (person: PersonRow["person"]) => (channel === "email" ? person.email : channel === "whatsapp" ? person.phone : person.linkedinUrl);
   const eligible = rows.filter(({ person }) => identity(person));
+  const pastedUrl = channel === "linkedin" && isProfileUrl(query.trim());
+  const toggle = (set: Set<string>, id: string) => {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  };
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <button className="absolute inset-0 bg-slate-950/50" aria-label="Close" onClick={onClose} />
-      <div className="relative flex max-h-[80vh] w-full max-w-2xl flex-col rounded-2xl bg-white shadow-2xl">
-        <div className="border-b border-slate-200 p-5">
-          <h2 className="text-base font-semibold text-slate-900">Add from People</h2>
-          <p className="mt-1 text-sm text-slate-500">Only people with a {channel === "email" ? "valid email" : channel === "whatsapp" ? "phone number" : "LinkedIn profile"} can be selected.</p>
+      <button className="absolute inset-0 bg-overlay backdrop-blur-[2px]" aria-label="Close" onClick={onClose} />
+      <div className="relative flex max-h-[80vh] w-full max-w-2xl flex-col rounded-2xl bg-bg-white-0 shadow-regular-md ring-1 ring-inset ring-stroke-soft-200">
+        <div className="border-b border-stroke-soft-200 p-5">
+          <h2 className="text-label-lg text-text-strong-950">Add from People</h2>
+          <p className="mt-1 text-paragraph-sm text-text-sub-600">
+            {channel === "linkedin"
+              ? "Pick people already in your database, paste a LinkedIn profile URL, or type a name and search LinkedIn."
+              : `Only people with a ${channel === "email" ? "valid email" : "phone number"} can be selected.`}
+          </p>
           <div className="mt-4 flex gap-2">
-            <input
-              className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-400"
-              placeholder={channel === "linkedin" ? "Search name, email, company — or paste a LinkedIn profile URL" : "Search name, email, company, domain, or LinkedIn…"}
-              value={query}
-              onChange={(event) => { setQuery(event.target.value); setLiveResults(null); }}
-              onKeyDown={(event) => { if (event.key === "Enter" && channel === "linkedin") runLinkedinLookup(); }}
-            />
+            <Input.Root className="min-w-0 flex-1">
+              <Input.Wrapper>
+                <Input.Input
+                  autoFocus
+                  placeholder={channel === "linkedin" ? "Name, company — or paste linkedin.com/in/… URL" : "Search name, email, company, domain, or LinkedIn…"}
+                  value={query}
+                  onChange={(event) => { setQuery(event.target.value); setLiveResults(null); setLiveError(null); }}
+                  onKeyDown={(event) => { if (event.key === "Enter" && channel === "linkedin") runLinkedinLookup(); }}
+                />
+              </Input.Wrapper>
+            </Input.Root>
             {channel === "linkedin" && (
-              <button
-                type="button"
-                className="shrink-0 rounded-lg bg-indigo-600 px-3 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-                disabled={!query.trim() || liveBusy}
-                onClick={runLinkedinLookup}
-              >
-                {liveBusy ? "Working…" : isProfileUrl(query.trim()) ? "Fetch & add" : "Search LinkedIn live"}
-              </button>
+              <Button.Root variant="primary" mode="filled" size="medium" className="shrink-0" disabled={!query.trim() || liveBusy} onClick={runLinkedinLookup}>
+                {liveBusy && <Button.Icon as={RiLoader4Line} className="animate-spin" />}
+                {liveBusy ? "Working…" : pastedUrl ? "Fetch & add" : "Search LinkedIn"}
+              </Button.Root>
             )}
           </div>
-          {liveError && <p className="mt-2 text-sm text-red-600">{liveError}</p>}
+          {liveError && <p className="mt-2 text-paragraph-sm text-error-base">{liveError}</p>}
         </div>
         {liveResults && (
-          <div className="border-b border-slate-200 bg-slate-50 p-3">
-            <p className="px-2 pb-1 text-xs font-medium text-slate-500">
+          <div className="border-b border-stroke-soft-200 bg-bg-weak-50 p-3">
+            <p className="px-2 pb-1 text-label-xs text-text-sub-600">
               {liveResults.length === 0 ? "No results on LinkedIn for that search." : `${liveResults.length} found on LinkedIn — pick who to add`}
             </p>
             <div className="max-h-56 overflow-y-auto">
               {liveResults.map((r) => (
-                <label key={r.linkedinUrl} className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-white">
-                  <input
-                    type="checkbox"
-                    checked={liveSelected.has(r.linkedinUrl)}
-                    onChange={() => setLiveSelected((current) => {
-                      const next = new Set(current);
-                      if (next.has(r.linkedinUrl)) next.delete(r.linkedinUrl); else next.add(r.linkedinUrl);
-                      return next;
-                    })}
-                  />
+                <label key={r.linkedinUrl} className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-bg-white-0">
+                  <Checkbox.Root checked={liveSelected.has(r.linkedinUrl)} onCheckedChange={() => setLiveSelected((current) => toggle(current, r.linkedinUrl))} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-slate-900">{r.name || r.linkedinUrl}</span>
-                    <span className="block truncate text-xs text-slate-500">{r.headline}{r.location ? ` · ${r.location}` : ""}</span>
+                    <span className="block truncate text-label-sm text-text-strong-950">{r.name || r.linkedinUrl}</span>
+                    <span className="block truncate text-paragraph-xs text-text-sub-600">{r.headline}{r.location ? ` · ${r.location}` : ""}</span>
                   </span>
                   {networkBadge(r.networkDistance) && (
-                    <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">{networkBadge(r.networkDistance)}</span>
+                    <span className="shrink-0 rounded-full bg-success-lighter px-2 py-0.5 text-label-xs text-success-base">{networkBadge(r.networkDistance)}</span>
                   )}
                 </label>
               ))}
             </div>
             {liveResults.length > 0 && (
               <div className="flex justify-end pt-2">
-                <button
-                  type="button"
-                  className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-                  disabled={!liveSelected.size || saving}
-                  onClick={() => void addLiveSelected()}
-                >
+                <Button.Root variant="primary" mode="filled" size="small" disabled={!liveSelected.size || saving} onClick={() => void addLiveSelected()}>
                   {saving ? "Adding…" : `Add ${liveSelected.size || ""} selected`}
-                </button>
+                </Button.Root>
               </div>
             )}
           </div>
         )}
         <div className="min-h-48 flex-1 overflow-y-auto p-3">
-          {loading ? <p className="p-4 text-sm text-slate-500">Loading…</p> : eligible.length === 0 ? <p className="p-4 text-sm text-slate-500">No eligible people found.</p> : eligible.map(({ person, company }) => (
-            <label key={person.id} className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-slate-50">
-              <input
-                type="checkbox"
-                checked={selected.has(person.id)}
-                onChange={() => setSelected((current) => {
-                  const next = new Set(current);
-                  if (next.has(person.id)) next.delete(person.id); else next.add(person.id);
-                  return next;
-                })}
-              />
+          {pastedUrl ? (
+            <p className="p-4 text-paragraph-sm text-text-sub-600">Press <span className="text-label-sm text-text-strong-950">Fetch &amp; add</span> to look this profile up on LinkedIn and add it to the campaign.</p>
+          ) : loading ? (
+            <p className="p-4 text-paragraph-sm text-text-sub-600">Loading…</p>
+          ) : eligible.length === 0 ? (
+            <p className="p-4 text-paragraph-sm text-text-sub-600">
+              {query.trim() && channel === "linkedin" ? "Nobody in your database matches — press Search LinkedIn to look them up on LinkedIn." : "No eligible people found."}
+            </p>
+          ) : eligible.map(({ person, company }) => (
+            <label key={person.id} className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-bg-weak-50">
+              <Checkbox.Root checked={selected.has(person.id)} onCheckedChange={() => setSelected((current) => toggle(current, person.id))} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-slate-900">{person.fullName || person.email || person.phone || person.linkedinUrl}</span>
-                <span className="block truncate text-xs text-slate-500">{identity(person)}{company?.name ? ` · ${company.name}` : ""}</span>
+                <span className="block truncate text-label-sm text-text-strong-950">{person.fullName || person.email || person.phone || person.linkedinUrl}</span>
+                <span className="block truncate text-paragraph-xs text-text-sub-600">{identity(person)}{company?.name ? ` · ${company.name}` : ""}</span>
               </span>
             </label>
           ))}
         </div>
-        {error && <p className="px-5 pb-2 text-sm text-red-600">{error}</p>}
-        <div className="flex justify-end gap-2 border-t border-slate-200 p-4">
-          <button className="rounded-lg border border-slate-200 px-4 py-2 text-sm" onClick={onClose}>Cancel</button>
-          <button className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50" disabled={!selected.size || saving} onClick={submit}>
+        {error && <p className="px-5 pb-2 text-paragraph-sm text-error-base">{error}</p>}
+        <div className="flex justify-end gap-2 border-t border-stroke-soft-200 p-4">
+          <Button.Root variant="neutral" mode="stroke" size="small" onClick={onClose}>Cancel</Button.Root>
+          <Button.Root variant="primary" mode="filled" size="small" disabled={!selected.size || saving} onClick={submit}>
             {saving ? "Adding…" : `Add ${selected.size || ""} ${selected.size === 1 ? "person" : "people"}`}
-          </button>
+          </Button.Root>
         </div>
       </div>
     </div>,
