@@ -682,7 +682,11 @@ CREATE TABLE public."Campaign" (
     "followUp1Message" text,
     "followUp2Message" text,
     "followUp3Message" text,
-    "organizationId" uuid NOT NULL
+    "organizationId" uuid NOT NULL,
+    "excludeBlacklisted" boolean DEFAULT true NOT NULL,
+    "excludeBlacklistedCompanies" boolean DEFAULT true NOT NULL,
+    "excludeContactedBySameSender" boolean DEFAULT false NOT NULL,
+    "excludeContactedOtherCampaigns" boolean DEFAULT false NOT NULL
 );
 
 --
@@ -3565,6 +3569,12 @@ CREATE INDEX "LinkedInAccount_organization_idx" ON public."LinkedInAccount" USIN
 --
 
 CREATE UNIQUE INDEX "Message_automated_lead_type_uq" ON public."Message" USING btree ("leadId", type) WHERE (("leadId" IS NOT NULL) AND ("duplicateOfMessageId" IS NULL) AND (type = ANY (ARRAY['INVITATION'::public."MessageType", 'ACCEPTANCE'::public."MessageType", 'FOLLOW_UP_1'::public."MessageType", 'FOLLOW_UP_2'::public."MessageType", 'FOLLOW_UP_3'::public."MessageType"])));
+
+--
+-- Name: Message_connection_latest_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX "Message_connection_latest_idx" ON public."Message" USING btree ("connectionId", "createdAt" DESC, id DESC) WHERE ("duplicateOfMessageId" IS NULL);
 
 --
 -- Name: Message_duplicateOfMessageId_idx; Type: INDEX; Schema: public; Owner: -
