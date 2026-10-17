@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { RiArrowDownLine, RiArrowLeftSLine, RiArrowRightSLine, RiArrowUpLine, RiDownloadLine, RiMore2Line, RiSearchLine, RiTable2, RiUpload2Line, RiUserSearchLine, RiBuilding2Line, RiUserLine } from "@remixicon/react";
+import { RiArrowDownLine, RiArrowLeftSLine, RiArrowRightSLine, RiArrowUpLine, RiDownloadLine, RiLinkedinBoxLine, RiMore2Line, RiSearchLine, RiTable2, RiUpload2Line, RiUserSearchLine, RiBuilding2Line, RiUserLine } from "@remixicon/react";
 import * as Button from "@/components/alignui/button";
 import * as Dropdown from "@/components/alignui/dropdown";
 import * as Input from "@/components/alignui/input";
@@ -15,6 +15,7 @@ import { EmptyState } from "@/components/page/EmptyState";
 import { PageContainer, PageHeader } from "@/components/page/PageHeader";
 import { PageTabs } from "@/components/page/PageTabs";
 import { cn } from "@/utils/cn";
+import AddFromLinkedInPicker from "./AddFromLinkedInPicker";
 import { CompaniesTable } from "./CompaniesTable";
 import { LeadsFilterPopover, type Subcategory } from "./LeadsFilterPopover";
 import { PeopleImportModal } from "./PeopleImportModal";
@@ -70,6 +71,7 @@ export default function LeadsClient({ initialTab, initialRows, initialTotal }: P
   const [error, setError] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
   const [showImport, setShowImport] = useState(false);
+  const [showAddFromLinkedin, setShowAddFromLinkedin] = useState(false);
   const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
   const skipUrl = useRef<string | null>(requestUrl(initialTab, initialTab === "people" ? freshPeople() : freshCompanies()));
 
@@ -164,7 +166,12 @@ export default function LeadsClient({ initialTab, initialRows, initialTotal }: P
         <PageHeader
           title="Leads"
           description="Every person and company you can reach, with their outreach and CRM state."
-          actions={isPeople && <Button.Root variant="primary" mode="filled" size="small" onClick={() => setShowImport(true)}><Button.Icon as={RiUpload2Line} />Import people</Button.Root>}
+          actions={isPeople && (
+            <>
+              <Button.Root variant="neutral" mode="stroke" size="small" onClick={() => setShowAddFromLinkedin(true)}><Button.Icon as={RiLinkedinBoxLine} />Add from LinkedIn</Button.Root>
+              <Button.Root variant="primary" mode="filled" size="small" onClick={() => setShowImport(true)}><Button.Icon as={RiUpload2Line} />Import people</Button.Root>
+            </>
+          )}
         />
 
         <PageTabs className="mt-6" label="Lead type" tabs={tabs} value={tab} onChange={switchTab} />
@@ -246,6 +253,12 @@ export default function LeadsClient({ initialTab, initialRows, initialTotal }: P
           )}
         </Frame>
         {showImport && <PeopleImportModal onClose={() => setShowImport(false)} onImported={() => { setPeopleState(freshPeople()); refetch(); }} />}
+        {showAddFromLinkedin && (
+          <AddFromLinkedInPicker
+            onClose={() => setShowAddFromLinkedin(false)}
+            onAdded={() => { setShowAddFromLinkedin(false); setPeopleState(freshPeople()); refetch(); }}
+          />
+        )}
       </PageContainer>
     </main>
   );
