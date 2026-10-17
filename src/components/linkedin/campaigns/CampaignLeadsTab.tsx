@@ -308,6 +308,32 @@ export function CampaignLeadsTab({
     }
   };
 
+  const handleDeleteAll = async () => {
+    const ok = await dialogs.confirm({
+      title: "Delete all leads?",
+      description: `All ${totalLeads.toLocaleString("en-US")} leads in this campaign will be removed with their message history. This cannot be undone.`,
+      confirmLabel: "Delete all leads",
+      variant: "error",
+    });
+    if (!ok) return;
+    setBulkDeleting(true);
+    try {
+      const res = await fetch("/api/linkedin/leads/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchFilters: true, filters: { campaignId } }),
+      });
+      const data = await res.json();
+      if (!data.ok) return;
+      setSelectedLeadId(null);
+      clearSelection();
+      onChanged();
+      void fetchLeads(1);
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   const selectedCount = allMatchingSelected ? pagination.total : selectedIds.size;
 
   const statusOptions = useMemo(
@@ -357,6 +383,12 @@ export function CampaignLeadsTab({
                 <Button.Icon as={RiUploadCloud2Line} />
                 Import
               </Button.Root>
+              {totalLeads > 0 && (
+                <Button.Root variant="error" mode="ghost" size="xsmall" onClick={() => void handleDeleteAll()} disabled={bulkDeleting}>
+                  <Button.Icon as={bulkDeleting ? RiLoader4Line : RiDeleteBinLine} className={cn(bulkDeleting && "animate-spin")} />
+                  Delete all leads
+                </Button.Root>
+              )}
             </div>
           }
         />

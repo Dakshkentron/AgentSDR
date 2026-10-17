@@ -65,6 +65,7 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
   const [searchUrlInput, setSearchUrlInput] = useState("");
   const [searchBusy, setSearchBusy] = useState(false);
   const [activeSearch, setActiveSearch] = useState<{ id: string; status: string; leadsFetched: number } | null>(null);
+  const [searchLeads, setSearchLeads] = useState<{ id: string; name: string | null; headline: string | null }[]>([]);
 
   async function startSearch() {
     if (!campaignId || !searchUrlInput.trim()) return;
@@ -85,6 +86,7 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
       const data = await response.json().catch(() => null);
       if (!response.ok || !data?.ok) throw new Error(data?.error || "Could not start that search");
       setActiveSearch({ id: data.id, status: "RUNNING", leadsFetched: 0 });
+      setSearchLeads([]);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -92,8 +94,10 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
     }
   }
 
-  // Poll the search this step just kicked off, so "Add leads" lights up as results
-  // trickle in instead of making the user go find the search on a separate page.
+  // Poll the search this step just kicked off, so the found-so-far list and "Add
+  // leads" count update live instead of making the user go find the search on a
+  // separate page. Kept running after an Add — the search keeps paging in the
+  // background, and re-clicking Add later pulls in whatever's turned up since.
   useEffect(() => {
     if (!activeSearch || ["COMPLETED", "FAILED"].includes(activeSearch.status)) return;
     const interval = setInterval(async () => {
@@ -102,6 +106,8 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
       const query = data?.detail?.queries?.[0];
       if (!query) return;
       setActiveSearch((current) => current && { ...current, status: query.status, leadsFetched: query.leadsFetched ?? 0 });
+      const leads = (data?.detail?.leads ?? []) as { id: string; name: string | null; headline: string | null }[];
+      setSearchLeads(leads);
     }, 3000);
     return () => clearInterval(interval);
   }, [activeSearch?.id, activeSearch?.status]);
@@ -121,14 +127,21 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
       const added = Number(result.created ?? 0) + Number(result.attached ?? 0);
       setLeadCount((current) => current + added);
       setImportSummary(`${added} added from LinkedIn search${Number(result.skipped ?? 0) ? ` · ${Number(result.skipped)} already enrolled` : ""}${Number(result.failed ?? 0) ? ` · ${Number(result.failed)} failed` : ""}`);
-      setShowSearch(false);
-      setActiveSearch(null);
-      setSearchUrlInput("");
+      // Left open on purpose: the search may still be paging in more results, and
+      // this same Add button is safe to click again later — already-added leads
+      // are skipped, not duplicated.
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
+  }
+
+  function closeSearchPanel() {
+    setShowSearch(false);
+    setActiveSearch(null);
+    setSearchLeads([]);
+    setSearchUrlInput("");
   }
 
   async function saveSetup() {
@@ -355,19 +368,41 @@ export function LinkedInCampaignWizard({ accounts }: { accounts: Account[] }) {
                         </AlignButton.Root>
                       </div>
                     ) : (
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <p className="text-paragraph-sm text-text-sub-600">
-                          {activeSearch.status === "RUNNING" || activeSearch.status === "QUEUED"
-                            ? `Fetching… ${activeSearch.leadsFetched.toLocaleString()} found so far`
-                            : activeSearch.status === "PAUSED_LIMIT"
-                              ? `${activeSearch.leadsFetched.toLocaleString()} found — paused, daily search quota reached`
-                              : `${activeSearch.leadsFetched.toLocaleString()} found`}
-                        </p>
-                        <AlignButton.Root variant="primary" mode="filled" size="small" onClick={() => void addFromSearch()} disabled={busy || activeSearch.leadsFetched === 0}>
-                          {busy && <AlignButton.Icon as={Loader2} className="animate-spin" />}
-                          {busy ? "Adding…" : `Add ${activeSearch.leadsFetched.toLocaleString()} leads`}
-                        </AlignButton.Root>
-                      </div>
+                      <>
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <p className="text-paragraph-sm text-text-sub-600">
+                            {activeSearch.status === "RUNNING" || activeSearch.status === "QUEUED"
+                              ? `Fetching… ${activeSearch.leadsFetched.toLocaleString()} found so far`
+                              : activeSearch.status === "PAUSED_LIMIT"
+                                ? `${activeSearch.leadsFetched.toLocaleString()} found — paused, daily search quota reached`
+                                : `${activeSearch.leadsFetched.toLocaleString()} found`}
+                          </p>
+                          <div className="flex gap-2">
+                            <AlignButton.Root variant="primary" mode="filled" size="small" onClick={() => void addFromSearch()} disabled={busy || activeSearch.leadsFetched === 0}>
+                              {busy && <AlignButton.Icon as={Loader2} className="animate-spin" />}
+                              {busy ? "Adding…" : `Add all ${activeSearch.leadsFetched.toLocaleString()} found so far`}
+                            </AlignButton.Root>
+                            <AlignButton.Root variant="neutral" mode="stroke" size="small" onClick={closeSearchPanel}>
+                              Done
+                            </AlignButton.Root>
+                          </div>
+                        </div>
+                        {searchLeads.length > 0 && (
+                          <ul className="mt-3 max-h-56 divide-y divide-stroke-soft-200 overflow-y-auto rounded-lg ring-1 ring-inset ring-stroke-soft-200">
+                            {searchLeads.map((lead) => (
+                              <li key={lead.id} className="px-3 py-2 text-paragraph-sm">
+                                <span className="block truncate text-text-strong-950">{lead.name || "(name not resolved yet)"}</span>
+                                {lead.headline && <span className="block truncate text-paragraph-xs text-text-sub-600">{lead.headline}</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {(activeSearch.status === "RUNNING" || activeSearch.status === "QUEUED") && (
+                          <p className="mt-2 text-paragraph-xs text-text-soft-400">
+                            Still paging through results — click Add again any time to bring in whatever's turned up since.
+                          </p>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
