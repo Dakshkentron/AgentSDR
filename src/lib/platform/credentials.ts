@@ -226,6 +226,16 @@ export async function savePlatformIntegration(key: PlatformKey, input: Record<st
           await registerUnipileWebhooks(currentOrganizationId(), credentials as PlatformCredentials["unipile"]),
         )
       : null;
+  if (isUnipileCompatible(key)) {
+    // The new provider has its own account ids: re-map LinkedIn accounts now,
+    // not on the next worker tick, so nothing is sent under the old ids.
+    try {
+      const { syncAllAccounts } = await import("@/functions/syncAllAccounts");
+      await syncAllAccounts();
+    } catch (error) {
+      console.error(`[platform] LinkedIn account sync after saving ${key} failed`, error);
+    }
+  }
   return {
     key,
     connected: true,

@@ -1,5 +1,5 @@
 import { isPlatformConnected } from "@/lib/platform/credentials";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, notInArray, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { linkedInAccounts } from "@/lib/linkedin/schema";
 import { getLinkedInAccounts, getProfile } from "@/services/unipile.service";
@@ -39,6 +39,16 @@ const syncOrganizationAccounts = async (): Promise<void> => {
   console.log("[syncAllAccounts] Syncing accounts from Unipile");
 
   const accounts = await getLinkedInAccounts();
+
+  // An account the provider no longer lists (e.g. after switching Unipile →
+  // Leopile, which issues its own account ids) must not keep sending under
+  // an id the provider will refuse. It reconnects in place below, matched by
+  // username, once the new provider lists it.
+  const listed = accounts.map((acc) => acc.linkedinId);
+  await db
+    .update(linkedInAccounts)
+    .set({ status: "DISCONNECTED" })
+    .where(and(inOrg(linkedInAccounts), listed.length ? notInArray(linkedInAccounts.linkedinId, listed) : undefined));
 
   if (accounts.length === 0) {
     console.log("[syncAllAccounts] No LinkedIn accounts found in Unipile");

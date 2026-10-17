@@ -37,7 +37,7 @@ export type InboxSendDependencies = {
     text: string;
     idempotencyKey: string;
   }): Promise<InboxSentMessage>;
-  sendThroughLinkedin(chatId: string, text: string): Promise<string | null>;
+  sendThroughLinkedin(chatId: string, text: string, connection: InboxSendConnection): Promise<string | null>;
   saveNativeMessage(input: {
     connection: InboxSendConnection;
     text: string;
@@ -85,6 +85,6 @@ export async function sendFromLinkedinInbox(
     });
   }
 
-  const providerMessageId = await dependencies.sendThroughLinkedin(connection.chatId, text);
+  const providerMessageId = await dependencies.sendThroughLinkedin(connection.chatId, text, connection);
   return dependencies.saveNativeMessage({ connection, text, providerMessageId });
 }

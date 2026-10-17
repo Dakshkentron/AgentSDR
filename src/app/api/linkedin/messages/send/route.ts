@@ -14,8 +14,8 @@ import {
   InboxSendError,
   sendFromLinkedinInbox,
 } from "@/lib/linkedin/messages/sendFromInbox";
-import { connections, leads, messages } from "@/lib/linkedin/schema";
-import { sendMessage } from "@/services/unipile.service";
+import { connections, leads, linkedInAccounts, messages } from "@/lib/linkedin/schema";
+import { deliverMessageToConnection, sendMessage } from "@/services/unipile.service";
 import { currentOrganizationId, inOrg } from "@/lib/tenancy/scope";
 
 export async function POST(request: NextRequest) {
@@ -65,7 +65,22 @@ export async function POST(request: NextRequest) {
               createdAt: new Date().toISOString(),
             };
           },
-          sendThroughLinkedin: (chatId, text) => sendMessage(chatId, text),
+          sendThroughLinkedin: async (chatId, text, connection) => {
+            const [row] = await db.select({ providerId: connections.providerId, accountId: linkedInAccounts.linkedinId })
+              .from(connections)
+              .leftJoin(linkedInAccounts, and(inOrg(linkedInAccounts), eq(linkedInAccounts.id, connections.linkedinAccountId)))
+              .where(and(inOrg(connections), eq(connections.id, connection.id))).limit(1);
+            if (!row?.accountId) return sendMessage(chatId, text);
+            // Falls back to finding (or starting) the chat by person when the
+            // stored chat id is refused, e.g. one issued by a previous provider.
+            const delivered = await deliverMessageToConnection(row.providerId, row.accountId, text, chatId);
+            if (!delivered.chatId) throw new Error("LinkedIn refused the message — reconnect the account and try again");
+            if (delivered.chatId !== chatId) {
+              await db.update(connections).set({ chatId: delivered.chatId })
+                .where(and(inOrg(connections), eq(connections.id, connection.id)));
+            }
+            return delivered.messageId;
+          },
           saveNativeMessage: async ({ connection, text, providerMessageId }) => {
             const [message] = await db.insert(messages).values({
               organizationId: currentOrganizationId(),

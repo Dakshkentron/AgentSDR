@@ -1,4 +1,4 @@
-import { UnipileClient } from "unipile-node-sdk";
+import { UnipileClient, UnsuccessfulRequestError } from "unipile-node-sdk";
 import axios from "axios";
 import { requirePlatformCredentials } from "@/lib/platform/credentials";
 import { serializeError } from "@/lib/linkedin/serializeError";
@@ -281,6 +281,14 @@ export const startNewChatWithUser = async (
   }
 };
 
+/** The provider answered and refused (4xx, or Leopile's `{ error }` body): nothing was sent. */
+export function isChatRefused(err: unknown): boolean {
+  if (!(err instanceof UnsuccessfulRequestError)) return false;
+  const body = (err as { body?: { status?: unknown; error?: unknown } }).body;
+  const status = typeof body?.status === "number" ? body.status : null;
+  return status === null ? typeof body?.error === "string" : status >= 400 && status < 500;
+}
+
 /** Send via existing chat, or start a new chat when LinkedIn has no thread yet. */
 export const deliverMessageToConnection = async (
   attendeeProviderId: string,
@@ -289,8 +297,19 @@ export const deliverMessageToConnection = async (
   existingChatId?: string | null
 ): Promise<{ chatId: string | null; messageId: string | null }> => {
   if (existingChatId) {
-    const messageId = await sendMessage(existingChatId, text);
-    return { chatId: existingChatId, messageId };
+    try {
+      const messageId = await sendMessage(existingChatId, text);
+      return { chatId: existingChatId, messageId };
+    } catch (err) {
+      // A chat id stored under another provider (Unipile's ids are its own,
+      // not LinkedIn's) is refused after switching to Leopile: find the
+      // thread again by person instead of failing the send. Only a definite
+      // refusal falls through — a timeout may have sent, and must not resend.
+      if (!isChatRefused(err)) throw err;
+      console.warn(`[unipile] send to stored chat ${existingChatId} failed, looking the chat up again:`, serializeError(err));
+    }
+    const chatId = await getChatIdForUser(attendeeProviderId, accountId);
+    if (chatId && chatId !== existingChatId) return { chatId, messageId: await sendMessage(chatId, text) };
   }
   return startNewChatWithUser(attendeeProviderId, accountId, text);
 };

@@ -5,7 +5,7 @@ import { companies, people } from "@/lib/leads/schema";
 import { personVariables } from "@/lib/leads/variables";
 import { fillTemplate } from "@/lib/outreach/render";
 import { campaigns, connections, leads as leadsTable, messages } from "@/lib/linkedin/schema";
-import { sendMessage } from "@/services/unipile.service";
+import { getChatIdForUser, isChatRefused, sendMessage } from "@/services/unipile.service";
 import type { LeadStatus, LinkedInAccount, MessageType } from "@/lib/linkedin/schema";
 import { processLeadAcceptance } from "@/lib/linkedin/acceptanceMessage";
 import { serializeError } from "@/lib/linkedin/serializeError";
@@ -259,7 +259,7 @@ const runFollowUpStage = async (account: LinkedInAccount, stage: FollowUpStage):
 
     let linkedinMessageId: string | null;
     try {
-      linkedinMessageId = await sendMessage(chatId, messageText);
+      linkedinMessageId = await sendFollowUpMessage(account, lead.providerId, lead.connection.id, chatId, messageText);
     } catch (err) {
       console.error(`[sendFollowUps] ${stage.label} failed for ${lead.linkedinUrl}: ${serializeError(err)}`);
       // Preserve the claim: a transport failure may happen after the provider
@@ -280,6 +280,29 @@ const runFollowUpStage = async (account: LinkedInAccount, stage: FollowUpStage):
     });
 
     console.log(`[sendFollowUps] ${stage.label} sent to ${lead.linkedinUrl}${isExhausted ? " — sequence complete" : ""}`);
+  }
+};
+
+/**
+ * Sends into the stored chat; if the provider definitely refused it (a chat
+ * id from a previous provider), finds the chat again by person once and
+ * stores the new id. Anything else rethrows for the caller's failure path.
+ */
+const sendFollowUpMessage = async (
+  account: LinkedInAccount,
+  providerId: string | null,
+  connectionId: string,
+  chatId: string,
+  text: string,
+): Promise<string | null> => {
+  try {
+    return await sendMessage(chatId, text);
+  } catch (err) {
+    if (!providerId || !isChatRefused(err)) throw err;
+    const found = await getChatIdForUser(providerId, account.linkedinId);
+    if (!found || found === chatId) throw err;
+    await db.update(connections).set({ chatId: found }).where(and(inOrg(connections), eq(connections.id, connectionId)));
+    return sendMessage(found, text);
   }
 };
 
