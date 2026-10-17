@@ -82,13 +82,11 @@ async function organizationB(): Promise<{ session: Session; organizationId: stri
   const signUp = await authPost("/sign-up/email", { name: "Isolation B", email, password });
   if (!signUp.ok) throw new Error(`B sign-up failed (${signUp.status}) ${await signUp.text()}`);
   await sql`update users set email_verified = true where email = ${email}`;
-  let session = await signIn(email, password, "B");
-  const created = await authPost("/organization/create", { name: `Isolation B ${stamp}`, slug: `isolation-b-${stamp}` }, session.cookie);
-  if (!created.ok) throw new Error(`B org create failed (${created.status}) ${await created.text()}`);
-  const org = (await created.json()) as { id: string };
-  session = { ...session, cookie: cookiesFrom(created, session.cookie) };
-  // A fresh sign-in so the session cookie cache carries the new active org.
-  session = await signIn(email, password, "B");
+  // Signing in makes B's own organization (one per person) and opens it.
+  const session = await signIn(email, password, "B");
+  const [org] = await sql<{ id: string }[]>`
+    select m.organization_id as id from members m join users u on u.id = m.user_id where u.email = ${email}`;
+  if (!org) throw new Error("B: signing in did not create an organization (is AUTH_SIGNUP=open?)");
   return { session, organizationId: org.id };
 }
 

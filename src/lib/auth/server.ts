@@ -9,6 +9,7 @@ import { asc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { authEmail, sendAuthEmail } from "./email";
 import { emailDomainAcceptsMail } from "./emailDomain";
+import { createOwnOrganization } from "./ownOrganization";
 import { ac, roles } from "./permissions";
 import { authSchema, members } from "./schema";
 import { mayCreateAccount, mayCreateOrganization } from "./signup";
@@ -136,10 +137,16 @@ export const auth = betterAuth({
     },
     session: {
       create: {
-        before: async (session) => ({
+        before: async (session, context) => ({
           data: {
             ...session,
-            activeOrganizationId: session.activeOrganizationId ?? (await initialOrganizationId(session.userId)),
+            // No organization yet: make theirs now, so sign-in lands in the app
+            // rather than on onboarding. Browser sign-ins only (context.request):
+            // seeds and tests set up organizations themselves.
+            activeOrganizationId:
+              session.activeOrganizationId ??
+              (await initialOrganizationId(session.userId)) ??
+              (context?.request ? await createOwnOrganization(session.userId) : null),
           },
         }),
       },
