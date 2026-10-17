@@ -36,13 +36,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
       if (url) {
         const dailyLimit = (await channelRules("linkedin")).searchLeadsPerDay;
-        const senders = await db
+        // Prefer a sender already assigned to this campaign, but a campaign mid-setup
+        // (like one still on "Add leads") may have none yet — any connected account
+        // in the org can resolve a profile lookup just as well.
+        const campaignSenders = await db
           .select({ account: linkedInAccounts })
           .from(campaignAccounts)
           .innerJoin(linkedInAccounts, eq(linkedInAccounts.id, campaignAccounts.linkedinAccountId))
           .where(and(eq(campaignAccounts.campaignId, campaignId), eq(linkedInAccounts.status, "CONNECTED")));
-        const account = senders.map((s) => s.account).find((a) => !getSearchUsage(a.searchLeadsToday, dailyLimit).limitReached);
-        if (!account) return NextResponse.json({ ok: false, error: "No connected sender with search quota left today" }, { status: 409 });
+        const orgAccounts = campaignSenders.length > 0
+          ? campaignSenders.map((s) => s.account)
+          : await db.select().from(linkedInAccounts).where(and(inOrg(linkedInAccounts), eq(linkedInAccounts.status, "CONNECTED")));
+        const account = orgAccounts.find((a) => !getSearchUsage(a.searchLeadsToday, dailyLimit).limitReached);
+        if (!account) {
+          return NextResponse.json(
+            { ok: false, error: orgAccounts.length === 0 ? "No connected LinkedIn account — connect one in Settings" : "No connected account has search quota left today" },
+            { status: 409 }
+          );
+        }
 
         let profile;
         try {

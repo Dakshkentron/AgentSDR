@@ -26,6 +26,8 @@ function networkBadge(d: string | null): string | null {
   return n === "OUT_OF_NETWORK" ? "Out of network" : null;
 }
 
+const isProfileUrl = (value: string) => /^https?:\/\//i.test(value) || /linkedin\.com\//i.test(value);
+
 export default function AddPeopleToCampaignModal({
   campaignId,
   channel,
@@ -45,13 +47,12 @@ export default function AddPeopleToCampaignModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // LinkedIn-only: fetch someone AgentSDR hasn't seen before, by profile URL or a live
-  // name search, instead of only picking from people already in the People database.
-  const [profileUrl, setProfileUrl] = useState("");
-  const [fetchingUrl, setFetchingUrl] = useState(false);
+  // LinkedIn-only: fetch someone AgentSDR hasn't seen before — the same box takes
+  // either a pasted profile URL (resolved and added directly) or a name/keywords
+  // (a live LinkedIn search), instead of only picking from the People database.
+  const [liveBusy, setLiveBusy] = useState(false);
   const [liveResults, setLiveResults] = useState<LiveResult[] | null>(null);
   const [liveSelected, setLiveSelected] = useState<Set<string>>(new Set());
-  const [liveSearching, setLiveSearching] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -110,15 +111,14 @@ export default function AddPeopleToCampaignModal({
     }
   }
 
-  async function fetchByUrl() {
-    if (!profileUrl.trim()) return;
-    setFetchingUrl(true);
+  async function fetchByUrl(url: string) {
+    setLiveBusy(true);
     setLiveError(null);
     try {
       const response = await fetch(`/api/linkedin/campaigns/${campaignId}/from-lookup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: profileUrl.trim() }),
+        body: JSON.stringify({ url }),
       });
       const body = await response.json();
       if (!response.ok || !body.ok) throw new Error(body.error ?? "Could not fetch that profile");
@@ -128,19 +128,18 @@ export default function AddPeopleToCampaignModal({
     } catch (cause) {
       setLiveError(cause instanceof Error ? cause.message : "Could not fetch that profile");
     } finally {
-      setFetchingUrl(false);
+      setLiveBusy(false);
     }
   }
 
-  async function searchLive() {
-    if (!query.trim()) return;
-    setLiveSearching(true);
+  async function searchLive(keywords: string) {
+    setLiveBusy(true);
     setLiveError(null);
     try {
       const response = await fetch("/api/linkedin/search/live", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: query.trim() }),
+        body: JSON.stringify({ query: keywords }),
       });
       const body = await response.json();
       if (!response.ok || !body.ok) throw new Error(body.error ?? "LinkedIn search failed");
@@ -149,8 +148,14 @@ export default function AddPeopleToCampaignModal({
     } catch (cause) {
       setLiveError(cause instanceof Error ? cause.message : "LinkedIn search failed");
     } finally {
-      setLiveSearching(false);
+      setLiveBusy(false);
     }
+  }
+
+  function runLinkedinLookup() {
+    const value = query.trim();
+    if (!value) return;
+    void (isProfileUrl(value) ? fetchByUrl(value) : searchLive(value));
   }
 
   async function addLiveSelected() {
@@ -188,39 +193,22 @@ export default function AddPeopleToCampaignModal({
           <div className="mt-4 flex gap-2">
             <input
               className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-400"
-              placeholder="Search name, email, company, domain, or LinkedIn…"
+              placeholder={channel === "linkedin" ? "Search name, email, company — or paste a LinkedIn profile URL" : "Search name, email, company, domain, or LinkedIn…"}
               value={query}
               onChange={(event) => { setQuery(event.target.value); setLiveResults(null); }}
+              onKeyDown={(event) => { if (event.key === "Enter" && channel === "linkedin") runLinkedinLookup(); }}
             />
             {channel === "linkedin" && (
               <button
                 type="button"
-                className="shrink-0 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                disabled={!query.trim() || liveSearching}
-                onClick={() => void searchLive()}
+                className="shrink-0 rounded-lg bg-indigo-600 px-3 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                disabled={!query.trim() || liveBusy}
+                onClick={runLinkedinLookup}
               >
-                {liveSearching ? "Searching…" : "Search LinkedIn live"}
+                {liveBusy ? "Working…" : isProfileUrl(query.trim()) ? "Fetch & add" : "Search LinkedIn live"}
               </button>
             )}
           </div>
-          {channel === "linkedin" && (
-            <div className="mt-2 flex gap-2">
-              <input
-                className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-400"
-                placeholder="Or paste a LinkedIn profile URL to fetch and add that person directly"
-                value={profileUrl}
-                onChange={(event) => setProfileUrl(event.target.value)}
-              />
-              <button
-                type="button"
-                className="shrink-0 rounded-lg bg-indigo-600 px-3 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-                disabled={!profileUrl.trim() || fetchingUrl}
-                onClick={() => void fetchByUrl()}
-              >
-                {fetchingUrl ? "Fetching…" : "Fetch & add"}
-              </button>
-            </div>
-          )}
           {liveError && <p className="mt-2 text-sm text-red-600">{liveError}</p>}
         </div>
         {liveResults && (
